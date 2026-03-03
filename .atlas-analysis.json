@@ -1,0 +1,86 @@
+{
+  "projectType": "saas",
+  "projectName": "Klip",
+  "projectDescription": "Self-hosted read-it-later service that converts web articles to EPUB/PDF and syncs them to KOReader-enabled e-readers.",
+  "theme": "linden",
+  "primaryColor": "#8B6F47",
+  "lightColor": "#C4A574",
+  "darkColor": "#5C4A34",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Server Setup",
+            "pages": [
+              "server/docker-setup",
+              "server/manual-setup",
+              "server/configuration"
+            ]
+          },
+          {
+            "group": "Client Setup",
+            "pages": [
+              "clients/koreader-plugin",
+              "clients/browser-extension",
+              "clients/sync-client"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "usage/clipping-articles",
+              "usage/syncing-to-device",
+              "usage/format-options"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/content-processing",
+              "advanced/styling",
+              "advanced/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/overview",
+              "api/clip",
+              "api/sync",
+              "api/batch-delete"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Web article to EPUB/PDF conversion",
+    "Mozilla Readability content extraction",
+    "KOReader plugin integration",
+    "Browser extension for quick clipping",
+    "Automatic sync and cleanup",
+    "E-reader optimized styling",
+    "Self-hosted deployment"
+  ],
+  "publicApiSurface": [
+    "POST /clip - Convert and save web article",
+    "GET /sync - List available articles for download",
+    "POST /clips/batch-delete - Remove downloaded articles"
+  ]
+}
