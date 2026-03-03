@@ -1,0 +1,493 @@
+---
+title: Architecture
+description: Understanding how Klip's server, plugin, and sync client work together
+---
+
+# Architecture overview
+
+Klip is built from three components that work together to deliver web content to your e-reader. Understanding how they interact helps with troubleshooting and customization.
+
+## System diagram
+
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Browser   │         │    Klip     │         │  KOReader   │
+│  Extension  │────────▶│   Server    │◀────────│   Plugin    │
+│     or      │  POST   │  (Node.js)  │  Sync   │   (Lua)     │
+│     API     │  /clip  │             │         │      +      │
+└─────────────┘         │  Puppeteer  │         │ Go Binary   │
+                        │ Readability │         └─────────────┘
+                        │  epub-gen   │
+                        └─────────────┘
+```
+
+## Components
+
+### Klip server (Node.js)
+
+The server is responsible for fetching web pages, extracting content, and converting them to e-reader formats.
+
+**Location:** `klip-server/`
+
+**Key files:**
+- `server.js` - Express server with three main endpoints
+- `processors/processor_epub.js` - EPUB generation with custom styling
+- `processors/processor_pdf.js` - PDF generation
+- `utils/crawler.js` - Web page fetching with Puppeteer
+
+#### Endpoints
+
+**POST /clip**
+
+Accepts an article URL and converts it to EPUB or PDF.
+
+```javascript klip-server/server.js
+app.post('/clip', async(req, res) => {
+    const {url, format = "epub", mode = "fast" } = req.body;
+
+    const id = uuidv7();
+    const extension = format === "pdf" ? "pdf" : "epub";
+    const fileName = `${id}.${extension}`;
+    const filePath = path.join(CLIPS_DIR, fileName);
+    const fetchMode = mode === "fast" ? "fast" : "best_effort"
+
+    console.log(`[${new Date().toISOString()}] Clipping (${format}): ${url}`);
+
+    try {
+        let title;
+        if (format === "pdf") {
+            title = await createPdf(url, filePath, fetchMode)
+        } else {
+            title = await createEpub(url, filePath, fetchMode)
+        }
+
+        res.json({
+            success: true,
+            id,
+            title,
+            file: fileName,
+            timestamp: new Date().getTime()
+        })
+    } catch (err) {
+        console.error("Clip Error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+})
+```
+
+**GET /sync**
+
+Returns a list of all available articles for the plugin to download.
+
+```javascript klip-server/server.js
+app.get('/sync', (req, res) => {
+    try {
+        const files = fs.readdirSync(CLIPS_DIR)
+
+        const articles = files.
+            filter(file => file.endsWith(".epub") || file.endsWith(".pdf"))
+            .sort()
+            .map(file => {
+                return {
+                    filename: file,
+                    download_url: `${DOWNLOAD_URL_PREFIX}/${file}`,
+                }
+            });
+
+        res.json(articles);
+    } catch(err) {
+        console.log("Sync Error: ", err)
+        res.status(500).json({error: "Could not list files"})
+    }
+})
+```
+
+**POST /clips/batch-delete**
+
+Deletes successfully synced articles from the server.
+
+```javascript klip-server/server.js
+app.post('/clips/batch-delete', (req, res) => {
+    const { filenames } = req.body;
+
+    if (!filenames || !Array.isArray(filenames)) 
+        return res.status(400).json({error: "Invalid Payload"});
+
+    res.status(202).send();
+
+    (async() => {
+        await Promise.all(filenames.map(async (file) => {
+            const safeName = path.basename(file);
+            const filePath = path.join(CLIPS_DIR, safeName);
+
+            try {
+                await fsPromises.unlink(filePath);
+            } catch (err) {
+                if (err.code !== 'ENOENT') 
+                    console.error(`Failed to delete ${safeName}:`, err.message);
+            }
+        }))
+    })();
+})
+```
+
+#### Content processing
+
+The server uses three key technologies for content extraction:
+
+1. **Puppeteer** - Headless browser for fetching pages (with stealth mode)
+2. **Mozilla Readability** - Extract clean article content
+3. **epub-gen** - Generate EPUB files with custom styling
+
+Example of the EPUB styling:
+
+```javascript klip-server/processors/processor_epub.js
+const kindleStyle = `
+    body { 
+        text-align: justify; 
+        hyphens: auto; 
+        line-height: 1.6; 
+        font-family: serif; 
+    }
+    
+    p { 
+        margin-bottom: 0.8em;
+        text-indent: 0em; 
+    }
+    
+    img { 
+        max-width: 100%; 
+        height: auto; 
+        display: block; 
+        margin: 1em auto; 
+    }
+    
+    pre, .gist, .highlight {
+        font-family: "Courier New", monospace !important;
+        text-align: left !important;
+        white-space: pre !important;
+        background: #f5f5f5 !important;
+        padding: 10px 15px;
+        line-height: 1.3 !important;
+        font-size: 0.9em !important;
+    }
+`;
+```
+
+### KOReader plugin (Lua)
+
+The plugin provides a user interface within KOReader for configuring and triggering syncs.
+
+**Location:** `klip.koplugin/main.lua`
+
+**Key responsibilities:**
+- Menu integration in KOReader
+- Configuration management (server URL, download folder)
+- Executing the sync binary
+- Displaying sync status
+
+#### Configuration
+
+The plugin stores settings in JSON format:
+
+```lua klip.koplugin/main.lua
+function Klip:loadConfig()
+  self.config = {
+    server_url = "http://192.168.1.50:3000",
+    download_path = "/mnt/us/documents/Klip",
+  }
+
+  local f = io.open(self.config_file, "r")
+  if f then
+    local content = f:read("*all")
+    f:close()
+    if content and content ~= "" then
+      local ok, decoded = pcall(JSON.decode, content)
+      if ok and type(decoded) == "table" then
+        for k, v in pairs(decoded) do
+          self.config[k] = v
+        end
+      end
+    end
+  else
+    self:saveConfig()
+  end
+end
+```
+
+The configuration file is stored at `klip.koplugin/klip/config.json`.
+
+#### Sync execution
+
+When the user taps "Sync Now", the plugin executes the Go binary:
+
+```lua klip.koplugin/main.lua
+function Klip:onSync(touchmenu_instance)
+  local info = InfoMessage:new{
+    text = "Syncing with Server...",
+    icon = "network",
+  }
+  UIManager:show(info)
+  UIManager:forceRePaint()
+
+  local cmd = string.format("cd %s && ./%s > /dev/null 2>&1", 
+                           plugin_path, binary_path_relative_to_plugin_path)
+  logger.info("Klip: Executing " .. cmd)
+
+  local result = os.execute(cmd)
+  local success = (result == 0)
+
+  UIManager:close(info)
+
+  if success then
+    UIManager:show(InfoMessage:new{ text = "Sync Complete", timeout = 2 })
+    if self.ui and self.ui.file_manager then
+      self.ui.file_manager:reinit()
+    end
+  else
+    UIManager:show(InfoMessage:new{ 
+      text = "Sync Failed\nCheck crash.log", 
+      timeout = 3 
+    })
+  end
+end
+```
+
+### Sync client (Go)
+
+The Go binary handles the actual downloading and cleanup process.
+
+**Location:** `klip.koplugin/klip/main.go`
+
+**Key responsibilities:**
+- Read configuration from `config.json`
+- Fetch list of available articles from server
+- Download new articles to the e-reader
+- Notify server to delete synced articles
+
+#### Sync workflow
+
+```go klip.koplugin/klip/main.go
+func main() {
+  config, err := loadConfig()
+  if err != nil {
+    log.Println(err)
+    os.Exit(1)
+  }
+
+  // Create download folder if it doesn't exist
+  if _, err := os.Stat(config.DownloadPath); err != nil {
+    if !os.IsNotExist(err) {
+      log.Println(err)
+      os.Exit(1)
+    }
+    os.MkdirAll(config.DownloadPath, 0755)
+  }
+
+  // Fetch available articles
+  articles, err := fetchArticles(config.ServerUrl)
+  if err != nil {
+    log.Println(err)
+    os.Exit(1)
+  }
+
+  if len(articles) == 0 {
+    log.Println("No new articles to download")
+    os.Exit(0)
+  }
+
+  var successfulDownloads []string
+
+  // Download each article
+  for _, article := range articles {
+    localPath := filepath.Join(config.DownloadPath, article.FileName)
+
+    // Skip if already exists
+    if _, err := os.Stat(localPath); err == nil {
+      successfulDownloads = append(successfulDownloads, article.FileName)
+      continue
+    }
+
+    err := downloadArticle(article.DownloadUrl, localPath)
+    if err != nil {
+      log.Printf("Failed to download %s: %v\n", article.FileName, err)
+      continue
+    }
+
+    successfulDownloads = append(successfulDownloads, article.FileName)
+  }
+
+  // Clean up server
+  if len(successfulDownloads) > 0 {
+    err := batchDeleteArticlesFromServer(config.ServerUrl, successfulDownloads)
+    if err != nil {
+      log.Printf("Failed to batch delete downloaded articles: %v\n", err)
+      os.Exit(1)
+    }
+  }
+
+  os.Exit(0)
+}
+```
+
+## Data flow
+
+### Clipping an article
+
+1. User sends article URL to `/clip` endpoint
+2. Server fetches the page with Puppeteer
+3. Readability extracts clean content
+4. Server generates EPUB/PDF with custom styling
+5. File is saved to `clips/` directory with UUID filename
+6. Server returns success response with article title
+
+### Syncing to e-reader
+
+1. User taps "Sync Now" in KOReader
+2. Plugin executes Go binary
+3. Binary fetches article list from `/sync` endpoint
+4. Binary downloads each article to configured folder
+5. Binary sends successful downloads to `/clips/batch-delete`
+6. Server deletes synced files
+7. Binary exits with success code
+8. Plugin displays "Sync Complete" message
+
+## Manual installation
+
+If you prefer not to use Docker, you can run the server manually:
+
+### Server requirements
+
+- Node.js 18 or higher
+- Chromium or Chrome installed
+
+### Installation steps
+
+```bash
+cd klip-server
+npm install
+```
+
+Set environment variables:
+
+```bash
+export PORT=3000
+export DOWNLOAD_URL=http://your-server:3000/download
+export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+```
+
+Start the server:
+
+```bash
+node server.js
+```
+
+The server will create a `clips/` directory automatically and listen on the specified port.
+
+## Environment variables
+
+### Server configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port | `3000` |
+| `DOWNLOAD_URL` | Base URL for file downloads | Required |
+| `PUPPETEER_EXECUTABLE_PATH` | Path to Chrome/Chromium | Auto-detected |
+
+### Plugin configuration
+
+Edit `klip.koplugin/klip/config.json`:
+
+```json
+{
+  "server_url": "http://192.168.1.50:3000",
+  "download_path": "/mnt/us/documents/Klip"
+}
+```
+
+## Building for different architectures
+
+The Go sync client must be compiled for your e-reader's CPU architecture.
+
+### Common device architectures
+
+| Device | Architecture | Build command |
+|--------|--------------|---------------|
+| Kindle Paperwhite | ARM v7 | `GOOS=linux GOARCH=arm GOARM=7 go build` |
+| Kindle Oasis | ARM v7 | `GOOS=linux GOARCH=arm GOARM=7 go build` |
+| Kobo (older) | ARM v7 | `GOOS=linux GOARCH=arm GOARM=7 go build` |
+| Kobo (newer) | ARM64 | `GOOS=linux GOARCH=arm64 go build` |
+
+### Build script
+
+```bash
+cd klip.koplugin/klip
+
+# For ARM v7 (most common)
+GOOS=linux GOARCH=arm GOARM=7 go build -o klip main.go
+
+# Make it executable
+chmod +x klip
+```
+
+<Tip>
+  To verify your device's architecture, SSH into it and run `uname -m`. Common outputs: `armv7l` (ARM v7), `aarch64` (ARM64).
+</Tip>
+
+## Troubleshooting
+
+### Server issues
+
+**Check if server is running:**
+```bash
+curl http://localhost:3000/sync
+```
+
+**View server logs:**
+```bash
+docker-compose logs -f
+```
+
+**Test article clipping:**
+```bash
+curl -X POST http://localhost:3000/clip \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/test-article"}'
+```
+
+### Plugin issues
+
+**Plugin not loading:**
+- Check that the Go binary exists and is executable
+- Review KOReader's `crash.log` for errors
+- Verify the binary was compiled for the correct architecture
+
+**Sync fails silently:**
+- Enable debug logging in the Go binary
+- Check network connectivity from device to server
+- Verify download folder has write permissions
+
+### Network debugging
+
+Test connectivity from your e-reader:
+
+```bash
+# On the e-reader
+curl http://your-server:3000/sync
+```
+
+If this fails, check:
+- Firewall rules on your server
+- Network configuration on your e-reader
+- Server URL in plugin configuration
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="API reference" icon="code" href="/api">
+    Detailed API documentation for all endpoints
+  </Card>
+  <Card title="Browser extension" icon="puzzle-piece" href="/clients/browser-extension">
+    Build a browser extension for one-click clipping
+  </Card>
+</CardGroup>

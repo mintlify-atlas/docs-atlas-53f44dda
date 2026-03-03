@@ -1,0 +1,240 @@
+---
+title: Browser extension
+description: Install and use the Chrome browser extension to clip articles to your Klip server
+---
+
+The Klip browser extension lets you send web articles to your Klip server with a single click. It works with Chrome and Chromium-based browsers.
+
+## Installation
+
+<Steps>
+  <Step title="Load the extension">
+    Since this is a local extension, you'll need to load it in developer mode:
+    
+    1. Open Chrome and navigate to `chrome://extensions/`
+    2. Enable **Developer mode** (toggle in top-right corner)
+    3. Click **Load unpacked**
+    4. Select the `klip-extension` folder
+  </Step>
+  
+  <Step title="Verify installation">
+    You should see the Klip extension icon in your browser toolbar. The extension is now ready to configure.
+  </Step>
+</Steps>
+
+## Configuration
+
+<Steps>
+  <Step title="Open the extension popup">
+    Click the Klip icon in your browser toolbar.
+  </Step>
+  
+  <Step title="Click the settings icon">
+    Click the gear icon (⚙️) in the top-right of the popup.
+  </Step>
+  
+  <Step title="Enter your server URL">
+    Enter your Klip server address:
+    
+    ```
+    http://192.168.1.50:3000
+    ```
+    
+    <Info>
+    The extension automatically adds `http://` if you don't include a protocol. Don't include a trailing slash.
+    </Info>
+  </Step>
+  
+  <Step title="Select processing mode">
+    Choose between two processing modes:
+    
+    - **Fast (Standard)**: Quick processing for most websites
+    - **Best Effort (Slow / Heavy Sites)**: Uses headless browser for JavaScript-heavy sites
+    
+    <Tip>
+    Start with Fast mode. Switch to Best Effort only if articles aren't rendering properly.
+    </Tip>
+  </Step>
+  
+  <Step title="Save settings">
+    Click **Save Settings**. Your configuration is stored in Chrome's sync storage.
+  </Step>
+</Steps>
+
+## Usage
+
+There are two ways to clip articles:
+
+### Using the popup
+
+1. Navigate to an article you want to save
+2. Click the Klip extension icon
+3. Choose **Klip as EPUB** or **Klip as PDF**
+4. Wait for the "Sent to Kindle!" confirmation
+
+### Using the context menu
+
+Right-click anywhere on a page and select:
+- **Klip to Kindle → Klip as EPUB**
+- **Klip to Kindle → Klip as PDF**
+
+<Info>
+The context menu is registered when the extension is installed (see `background.js:1-23`).
+</Info>
+
+## Status indicators
+
+The extension provides visual feedback through badge text:
+
+| Badge | Meaning |
+|-------|--------|
+| `...` | Clipping in progress (blue) |
+| `OK` | Successfully sent to server (green) |
+| `ERR` | Server returned an error (red) |
+| `FAIL` | Network/connection failure (red) |
+| `CFG` | Server URL not configured (orange) |
+
+Badges automatically clear after 3 seconds.
+
+## How it works
+
+### Popup interface (popup.js)
+
+The popup provides the main user interface:
+
+```javascript
+async function klip(format) {
+    const { serverUrl, mode } = await chrome.storage.sync.get(['serverUrl', 'mode']);
+    
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    const response = await fetch(`${serverUrl}/clip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            url: tab.url,
+            format: format,
+            mode: mode || 'fast'
+        })
+    });
+}
+```
+
+See `popup.js:53-93` for the complete implementation.
+
+### Background service worker (background.js)
+
+The background worker handles:
+- Context menu registration on installation
+- Context menu click events
+- Badge status updates
+
+```javascript
+chrome.contextMenus.create({
+    id: "klip-root",
+    title: "Klip to Kindle",
+    contexts: ["page"]
+});
+
+chrome.contextMenus.create({
+    id: "klip-epub",
+    parentId: "klip-root",
+    title: "Klip as EPUB",
+    contexts: ["page"]
+});
+```
+
+See `background.js:4-23` for context menu setup.
+
+### API request format
+
+The extension sends a POST request to `/clip` with:
+
+```json
+{
+  "url": "https://example.com/article",
+  "format": "epub",
+  "mode": "fast"
+}
+```
+
+**Parameters:**
+- `url` - The web page to clip (from active tab)
+- `format` - Either `epub` or `pdf`
+- `mode` - Either `fast` or `best_effort`
+
+## Manifest details
+
+The extension uses Manifest V3:
+
+```json
+{
+  "manifest_version": 3,
+  "name": "Klip",
+  "version": "1.0",
+  "description": "Send articles to KOReader on your Kindle",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "contextMenus"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
+```
+
+See `manifest.json:1-19`.
+
+## Troubleshooting
+
+### "No Server URL" error
+
+**Cause:** Server URL hasn't been configured.
+
+**Solution:** Click the settings icon and enter your server URL, then save.
+
+### "Connection Failed" error
+
+**Possible causes:**
+- Server is not running
+- Server URL is incorrect
+- Network connectivity issues
+- CORS issues (if server and browser are on different origins)
+
+**Solution:** 
+1. Verify the server is running: `curl http://your-server:3000/sync`
+2. Check the browser console (F12) for detailed error messages
+3. Ensure your server allows requests from the extension
+
+### "Server Error" response
+
+**Cause:** Server received the request but failed to process it.
+
+**Solution:** 
+- Check the Klip server logs for error details
+- Try switching to "Best Effort" mode for JavaScript-heavy sites
+- Verify the URL is accessible and not behind a paywall
+
+### Articles appear incomplete
+
+**Cause:** The website uses heavy JavaScript rendering.
+
+**Solution:** Switch to **Best Effort** mode in settings. This uses Puppeteer on the server to fully render JavaScript before extraction.
+
+### Settings don't persist
+
+**Cause:** Chrome sync storage may be disabled.
+
+**Solution:** The extension uses `chrome.storage.sync` (popup.js:9, 37) which requires Chrome sync to be enabled in your browser settings.
+
+## Privacy
+
+The extension:
+- Only sends URLs when you explicitly click to clip an article
+- Stores server URL and mode preference in Chrome's sync storage
+- Does not track or collect any usage data
+- Communicates only with your self-hosted Klip server

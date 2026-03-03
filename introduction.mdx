@@ -1,0 +1,85 @@
+---
+title: Introduction
+description: A self-hosted read-it-later service that delivers web articles to your e-reader in beautifully formatted EPUB or PDF files
+---
+
+# Save articles to your e-reader
+
+Klip is a self-hosted read-it-later service designed specifically for KOReader-enabled e-readers. Save web articles from your browser and sync them directly to your device as clean, readable EPUB or PDF files.
+
+<CardGroup cols={2}>
+  <Card title="Self-hosted privacy" icon="shield-check">
+    Your reading list stays on your own server. No third-party tracking or data collection.
+  </Card>
+  <Card title="E-reader optimized" icon="book-open">
+    Articles are formatted with sepia backgrounds, serif fonts, and proper typography for comfortable reading.
+  </Card>
+  <Card title="Clean content extraction" icon="sparkles">
+    Powered by Mozilla Readability to strip away ads, pop-ups, and clutter.
+  </Card>
+  <Card title="Simple sync workflow" icon="arrows-rotate">
+    One tap in KOReader downloads all your saved articles and removes them from the server.
+  </Card>
+</CardGroup>
+
+## How it works
+
+Klip consists of three components that work together:
+
+<Steps>
+  <Step title="Clip articles from your browser">
+    Send article URLs to your Klip server via browser extension, bookmarklet, or API call.
+  </Step>
+  <Step title="Server processes content">
+    The Node.js server fetches the page, extracts clean content, and generates an EPUB or PDF file with custom styling.
+  </Step>
+  <Step title="Sync to your e-reader">
+    Open KOReader, tap "Sync Now", and your articles download automatically to your device.
+  </Step>
+</Steps>
+
+## Key features
+
+### Content processing
+
+- **Clean extraction** using Mozilla's Readability library
+- **Custom EPUB covers** generated with article titles and site names
+- **Code-friendly** with syntax highlighting and monospace formatting
+- **Image handling** for lazy-loaded images and embedded content
+- **JavaScript support** with optional "best effort" mode for dynamic sites
+
+### E-reader optimizations
+
+Articles are styled specifically for e-readers:
+
+- Sepia background color (#fbf0d9) for comfortable reading
+- Serif fonts for body text
+- Proper line spacing (1.6) and justified text
+- Centered images with automatic sizing
+- Clean code blocks with monospace fonts
+- Syntax highlighting for programming content
+
+### Automatic cleanup
+
+Once your KOReader plugin successfully downloads an article, it notifies the server to delete the file. Your server stays clean without manual intervention.
+
+<Note>
+  Klip works with any KOReader-compatible device, including Kindle Paperwhite, Kobo, and other e-readers running KOReader.
+</Note>
+
+## What you'll need
+
+- A server or VPS to host the Klip server (Docker recommended)
+- A KOReader-enabled e-reader
+- Basic familiarity with command-line tools for setup
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get Klip running in 10 minutes
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the components work together
+  </Card>
+</CardGroup>

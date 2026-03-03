@@ -1,0 +1,168 @@
+---
+title: Docker setup
+description: Run Klip server using Docker Compose
+---
+
+The easiest way to run Klip server is using Docker Compose. This setup includes all dependencies, including Chromium for rendering web pages.
+
+## Prerequisites
+
+- Docker and Docker Compose installed on your system
+- A publicly accessible URL for serving downloaded files
+
+## Setup steps
+
+<Steps>
+  <Step title="Create a project directory">
+    Create a new directory for your Klip server installation:
+
+    ```bash
+    mkdir klip-server
+    cd klip-server
+    ```
+  </Step>
+
+  <Step title="Create docker-compose.yml">
+    Create a `docker-compose.yml` file with the following configuration:
+
+    ```yaml docker-compose.yml
+    services:
+      klip:
+        build: .
+        container_name: klip-server
+        restart: unless-stopped
+        environment:
+          DOWNLOAD_URL: 'https://klip.example.com/download'
+        volumes:
+          - ./clips:/app/clips
+        ports:
+          - "${PORT:-3000}:3000"
+    ```
+
+    <Note>
+      Replace `https://klip.example.com/download` with your actual public URL where files will be accessible.
+    </Note>
+  </Step>
+
+  <Step title="Configure environment variables">
+    Optionally create a `.env` file to customize the port:
+
+    ```bash .env
+    PORT=3000
+    ```
+
+    The default port is 3000 if not specified.
+  </Step>
+
+  <Step title="Start the server">
+    Build and start the container:
+
+    ```bash
+    docker-compose up -d
+    ```
+
+    The server will be available at `http://localhost:3000`.
+  </Step>
+
+  <Step title="Verify the installation">
+    Check that the container is running:
+
+    ```bash
+    docker-compose ps
+    ```
+
+    View the logs:
+
+    ```bash
+    docker-compose logs -f klip
+    ```
+
+    You should see:
+    ```
+    Klip Server active on http://localhost:3000
+    ```
+  </Step>
+</Steps>
+
+## Docker image details
+
+The Klip server uses an Alpine Linux-based Node.js image with Chromium pre-installed:
+
+```dockerfile Dockerfile
+FROM public.ecr.aws/docker/library/node:lts-alpine
+
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    font-noto-emoji
+
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+WORKDIR /app
+
+COPY package*.json .
+
+RUN npm install --omit=dev
+
+RUN mkdir -p clips
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]
+```
+
+<Info>
+  The image includes fonts (freefont and noto-emoji) to ensure proper rendering of text and emojis in generated files.
+</Info>
+
+## Data persistence
+
+Generated clips are stored in the `./clips` directory on your host machine, mounted to `/app/clips` inside the container. This ensures your clips persist even if the container is rebuilt or removed.
+
+## Updating
+
+To update to the latest version:
+
+```bash
+docker-compose pull
+docker-compose up -d
+```
+
+## Troubleshooting
+
+<Warning>
+  If you're experiencing issues with Chromium, ensure your Docker host has enough memory allocated. Puppeteer requires at least 512MB of available RAM.
+</Warning>
+
+### Common issues
+
+**Port already in use**
+
+If port 3000 is already in use, change the `PORT` environment variable in your `.env` file:
+
+```bash .env
+PORT=3001
+```
+
+**Permission denied on clips directory**
+
+Ensure the clips directory has proper permissions:
+
+```bash
+chmod -R 755 ./clips
+```
+
+**Container keeps restarting**
+
+Check the logs for errors:
+
+```bash
+docker-compose logs klip
+```

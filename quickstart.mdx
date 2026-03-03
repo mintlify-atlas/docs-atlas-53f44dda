@@ -1,80 +1,226 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get from zero to clipping and syncing your first article in 10 minutes
 ---
 
-## Get started in three steps
+# Get started with Klip
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through setting up the Klip server, installing the KOReader plugin, and syncing your first article.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- Docker and Docker Compose (for server setup)
+- A KOReader-enabled e-reader
+- Network connectivity between your e-reader and server
 
-### Step 2: Deploy your changes
+<Note>
+  If you don't have Docker, see the manual setup instructions in the [Architecture](/architecture) page.
+</Note>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+## Server setup
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/yourusername/klip.git
+    cd klip/klip-server
+    ```
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Configure environment variables">
+    Edit `docker-compose.yml` to set your public server URL:
 
-### Step 3: Go live
+    ```yaml
+    environment:
+      DOWNLOAD_URL: 'https://your-server.com/download'
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    <Info>
+      The `DOWNLOAD_URL` should be the publicly accessible URL where your e-reader can download files. If testing locally, use your local IP address like `http://192.168.1.50:3000/download`.
+    </Info>
+  </Step>
+
+  <Step title="Start the server">
+    ```bash
+    docker-compose up -d
+    ```
+
+    The server will start on port 3000. Check it's running:
+
+    ```bash
+    curl http://localhost:3000/sync
+    ```
+
+    You should see an empty array: `[]`
+  </Step>
+</Steps>
+
+## KOReader plugin setup
+
+<Steps>
+  <Step title="Build the sync client">
+    The plugin includes a Go binary that handles syncing. Build it for your device's architecture:
+
+    ```bash
+    cd ../klip.koplugin/klip
+    ```
+
+    For Kindle Paperwhite and similar ARM devices:
+
+    ```bash
+    GOOS=linux GOARCH=arm GOARM=7 go build -o klip main.go
+    ```
+
+    <Tip>
+      For other devices, adjust `GOARCH` accordingly (e.g., `GOARCH=amd64` for x86 devices, `GOARCH=arm64` for 64-bit ARM).
+    </Tip>
+  </Step>
+
+  <Step title="Copy plugin to your device">
+    Copy the entire `klip.koplugin` folder to your KOReader plugins directory.
+
+    For Kindle devices:
+    ```bash
+    cp -r ../klip.koplugin /mnt/us/koreader/plugins/
+    ```
+
+    <Info>
+      The path may vary by device. Common locations:
+      - Kindle: `/mnt/us/koreader/plugins/`
+      - Kobo: `/mnt/onboard/.adds/koreader/plugins/`
+    </Info>
+  </Step>
+
+  <Step title="Restart KOReader">
+    Disconnect your device and restart KOReader for the plugin to load.
+  </Step>
+
+  <Step title="Configure the plugin">
+    In KOReader:
+
+    1. Open the menu (tap the top of the screen)
+    2. Navigate to **Klip Sync**
+    3. Set your **Server URL** (e.g., `http://192.168.1.50:3000`)
+    4. Set your **Download Folder** (e.g., `/mnt/us/documents/Klip`)
+
+    <Note>
+      The plugin creates a default configuration at `klip.koplugin/klip/config.json`. You can also edit this file directly.
+    </Note>
+  </Step>
+</Steps>
+
+## Clip your first article
+
+<Steps>
+  <Step title="Send an article to your server">
+    Use `curl` to clip an article:
+
+    ```bash
+    curl -X POST http://your-server:3000/clip \
+      -H "Content-Type: application/json" \
+      -d '{"url": "https://example.com/article"}'
+    ```
+
+    The server will respond with:
+
+    ```json
+    {
+      "success": true,
+      "id": "01933e7f-8f6a-7b42-9c5e-8a2f3d4e5f6a",
+      "title": "Example Article Title",
+      "file": "01933e7f-8f6a-7b42-9c5e-8a2f3d4e5f6a.epub",
+      "timestamp": 1234567890
+    }
+    ```
+  </Step>
+
+  <Step title="Sync to your e-reader">
+    In KOReader:
+
+    1. Open the menu
+    2. Navigate to **Klip Sync**
+    3. Tap **Sync Now**
+
+    The plugin will download the article to your configured folder and display "Sync Complete".
+
+    <Tip>
+      Successfully synced articles are automatically deleted from the server to keep it clean.
+    </Tip>
+  </Step>
+
+  <Step title="Read your article">
+    Navigate to your download folder in KOReader and open the newly synced EPUB file.
+  </Step>
+</Steps>
+
+## Advanced options
+
+### Clip as PDF instead of EPUB
+
+```bash
+curl -X POST http://your-server:3000/clip \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/article", "format": "pdf"}'
+```
+
+### Handle JavaScript-heavy sites
+
+For sites that require JavaScript to load content:
+
+```bash
+curl -X POST http://your-server:3000/clip \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/article", "mode": "best_effort"}'
+```
+
+<Warning>
+  "Best effort" mode uses Puppeteer with stealth plugins to render JavaScript. This is slower and may fail on sites with bot detection.
+</Warning>
+
+## Set up a browser extension
+
+You can create a simple bookmarklet or browser extension to clip articles with one click.
+
+### Example bookmarklet
+
+```javascript
+javascript:(function(){
+  fetch('http://your-server:3000/clip', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: window.location.href})
+  }).then(()=>alert('Clipped!'));
+})();
+```
+
+Drag this to your bookmarks bar and click it on any article page to clip it.
+
+## Troubleshooting
+
+<Info>
+  Check `crash.log` in your KOReader directory for detailed error messages if sync fails.
+</Info>
+
+### Plugin doesn't appear
+
+- Verify the Go binary exists at `klip.koplugin/klip/klip`
+- Check that the binary is executable: `chmod +x klip`
+- Ensure you compiled for the correct architecture
+
+### Sync fails
+
+- Verify your server URL is accessible from your device
+- Check that the download folder exists and has write permissions
+- Review `crash.log` for specific error messages
+
+### Articles don't convert
+
+- Try using `mode: "best_effort"` for JavaScript-heavy sites
+- Check server logs with `docker-compose logs -f`
+- Some sites may block automated access
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
+<Card title="Architecture" icon="diagram-project" href="/architecture">
+  Learn how Klip's components work together under the hood
 </Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

@@ -1,0 +1,67 @@
+---
+title: List clips
+description: Retrieve all saved clips from your Klip instance
+---
+
+## Endpoint
+
+```
+GET /sync
+```
+
+Returns a list of all saved clips (PDF and EPUB files) stored on your Klip server.
+
+## Response
+
+The endpoint returns an array of clip objects, sorted alphabetically by filename.
+
+<ResponseField name="filename" type="string">
+  The filename of the saved clip (format: `{id}.{extension}`)
+</ResponseField>
+
+<ResponseField name="download_url" type="string">
+  The complete download URL for the clip file. Constructed using the `DOWNLOAD_URL` environment variable prefix.
+</ResponseField>
+
+## Example
+
+<CodeGroup>
+
+```bash curl
+curl http://localhost:3000/sync
+```
+
+</CodeGroup>
+
+## Example response
+
+```json
+[
+  {
+    "filename": "01932e8f-7c9a-7890-b123-456789abcdef.epub",
+    "download_url": "https://clips.example.com/01932e8f-7c9a-7890-b123-456789abcdef.epub"
+  },
+  {
+    "filename": "01932e90-1234-5678-9abc-def012345678.pdf",
+    "download_url": "https://clips.example.com/01932e90-1234-5678-9abc-def012345678.pdf"
+  },
+  {
+    "filename": "01932e91-abcd-ef01-2345-6789abcdef01.epub",
+    "download_url": "https://clips.example.com/01932e91-abcd-ef01-2345-6789abcdef01.epub"
+  }
+]
+```
+
+<Note>
+  The `download_url` is constructed using the `DOWNLOAD_URL` environment variable. Ensure this is configured correctly to point to where your clips directory is served.
+</Note>
+
+## Error responses
+
+If the server cannot read the clips directory, it returns a 500 status code:
+
+```json
+{
+  "error": "Could not list files"
+}
+```

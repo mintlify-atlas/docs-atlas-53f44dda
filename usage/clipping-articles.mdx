@@ -1,0 +1,173 @@
+---
+title: Clipping articles
+description: Save web articles to your Klip server using the API or browser extension
+---
+
+Klip converts web articles into e-reader-friendly EPUB or PDF files. You can clip articles by sending requests to the server API or using the browser extension.
+
+## Using the API
+
+Send a POST request to the `/clip` endpoint with the article URL and format options.
+
+### Basic request
+
+```bash
+curl -X POST http://localhost:3000/clip \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/article",
+    "format": "epub"
+  }'
+```
+
+### Request parameters
+
+<Info>
+All parameters are included in the JSON request body.
+</Info>
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | required | The URL of the article to clip |
+| `format` | string | `"epub"` | Output format: `"epub"` or `"pdf"` |
+| `mode` | string | `"fast"` | Fetch mode: `"fast"` or `"best_effort"` |
+
+### Fetch modes
+
+The `mode` parameter controls how the server fetches web content:
+
+<Tabs>
+  <Tab title="fast">
+    Uses a quick fetch without waiting for JavaScript execution. Works for most static sites and server-rendered content.
+    
+    ```json
+    {
+      "url": "https://example.com/article",
+      "format": "epub",
+      "mode": "fast"
+    }
+    ```
+  </Tab>
+  <Tab title="best_effort">
+    Waits for JavaScript execution and lazy-loaded content. Use this for single-page applications or sites with dynamic content loading.
+    
+    ```json
+    {
+      "url": "https://example.com/article",
+      "format": "epub",
+      "mode": "best_effort"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response format
+
+Successful requests return metadata about the clipped article:
+
+```json
+{
+  "success": true,
+  "id": "01932e4a-7b8c-7890-a1b2-c3d4e5f6a7b8",
+  "title": "How to Build a Self-Hosted Read-It-Later Service",
+  "file": "01932e4a-7b8c-7890-a1b2-c3d4e5f6a7b8.epub",
+  "timestamp": 1709481234567
+}
+```
+
+The file is saved in the server's `clips` directory and will be available for syncing to your device.
+
+## Using the browser extension
+
+The Klip browser extension adds quick-clip functionality to Chrome and Chromium-based browsers.
+
+### Installation
+
+<Steps>
+  <Step title="Load the extension">
+    Open Chrome and navigate to `chrome://extensions`. Enable Developer Mode and click "Load unpacked". Select the `klip-extension` folder.
+  </Step>
+  
+  <Step title="Configure server URL">
+    Click the Klip extension icon and enter your server URL (e.g., `http://192.168.1.50:3000`).
+  </Step>
+  
+  <Step title="Select fetch mode">
+    Choose between "fast" and "best_effort" mode based on the types of sites you typically clip.
+  </Step>
+</Steps>
+
+### Clipping from the extension
+
+There are two ways to clip articles using the extension:
+
+<Tabs>
+  <Tab title="Popup">
+    Click the extension icon to open the popup and choose your format:
+    
+    - **Klip as EPUB** - Creates an EPUB file with custom cover and typography
+    - **Klip as PDF** - Creates a PDF with sepia styling optimized for e-ink displays
+    
+    The extension will show status badges:
+    - `...` (blue) - Processing
+    - `OK` (green) - Successfully clipped
+    - `ERR` (red) - Server error
+    - `CFG` (orange) - Server URL not configured
+  </Tab>
+  
+  <Tab title="Context menu">
+    Right-click anywhere on the page and select:
+    
+    - **Klip to Kindle > Klip as EPUB**
+    - **Klip to Kindle > Klip as PDF**
+    
+    The current page URL will be sent to your server automatically.
+  </Tab>
+</Tabs>
+
+### Extension implementation
+
+<Note>
+The extension sends the same API request as the curl example above, just wrapped in a user-friendly interface.
+</Note>
+
+Here's how the extension sends clip requests (from `background.js:38-55`):
+
+```javascript
+const response = await fetch(`${serverUrl}/clip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        url: url,
+        format: format,
+        mode: mode || 'fast'
+    })
+});
+```
+
+## Content processing
+
+Regardless of how you clip articles, the server processes them using:
+
+1. **Puppeteer** - Fetches the web page with browser automation
+2. **Mozilla Readability** - Extracts clean article content
+3. **Format processors** - Converts to EPUB or PDF with e-reader optimizations
+
+<Tip>
+For articles on JavaScript-heavy sites like Medium or Substack, use `"mode": "best_effort"` to ensure all content loads before processing.
+</Tip>
+
+## Error handling
+
+If clipping fails, the API returns an error response:
+
+```json
+{
+  "error": "Could not parse article."
+}
+```
+
+Common errors:
+- `Could not parse article.` - Readability couldn't extract content from the page
+- Connection errors - Server is unreachable or URL is invalid
+- Timeout errors - Page took too long to load (try `fast` mode)

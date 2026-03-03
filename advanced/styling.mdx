@@ -1,0 +1,470 @@
+---
+title: Styling
+description: Understand the CSS styling system for EPUB and PDF exports
+---
+
+Klip applies custom CSS styling to ensure articles look beautiful on e-readers. The styling system uses a sepia color scheme, serif fonts, and careful typography to create a book-like reading experience.
+
+## Design philosophy
+
+The styling prioritizes:
+
+- **Readability** - High contrast, comfortable line spacing, serif fonts
+- **E-ink optimization** - Sepia backgrounds reduce eye strain on backlit screens
+- **Consistency** - Uniform appearance across different source websites
+- **Code-friendly** - Proper monospace rendering with syntax highlighting
+
+<Info>
+The same core styles are used for both EPUB and PDF exports, with minor format-specific adjustments.
+</Info>
+
+## Color palette
+
+Klip uses a sepia theme inspired by Microsoft Edge's reading mode:
+
+```css
+body {
+    background-color: #fbf0d9; /* Edge Sepia Background */
+    color: #3b2e1e;            /* Soft Brown Text */
+}
+```
+
+### Full color scheme
+
+| Element | Color | Usage |
+|---------|-------|-------|
+| Background | `#fbf0d9` | Main page background |
+| Text | `#3b2e1e` | Body text, headers |
+| Borders | `#e5d8bc` | Dividers, code blocks |
+| Metadata | `#705d42` | Bylines, site names |
+| Blockquotes | `#5a4a35` | Quote text color |
+| Code background | `#f5f5f5` | Code block backgrounds |
+
+<Tip>
+This palette works exceptionally well on e-ink displays and provides comfortable reading in various lighting conditions.
+</Tip>
+
+## Typography
+
+Klip uses web fonts to ensure consistent rendering across devices.
+
+### Font families
+
+```css
+/* Body text - Lora serif font */
+body {
+    font-family: 'Lora', serif;
+    line-height: 1.6;
+}
+
+/* Metadata - Inter sans-serif */
+.metadata {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Code - Courier New monospace */
+pre, code {
+    font-family: "Courier New", monospace !important;
+}
+```
+
+<Note>
+[Lora](https://fonts.google.com/specimen/Lora) is a well-balanced contemporary serif font designed for high readability on screens.
+</Note>
+
+### Font sizes and spacing
+
+```css
+h1 { 
+    font-size: 32px; 
+    line-height: 1.2; 
+    margin-bottom: 10px;
+    font-weight: 700;
+}
+
+p { 
+    margin-bottom: 1.5em; 
+    font-size: 20px; 
+}
+
+.metadata {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+```
+
+## EPUB styling
+
+EPUB files use embedded CSS passed to the epub-gen library.
+
+### Core EPUB styles
+
+From `processor_epub.js:70-135`:
+
+```css
+body { 
+    text-align: justify; 
+    hyphens: auto; 
+    -webkit-hyphens: auto;
+    -moz-hyphens: auto;
+    line-height: 1.6; 
+    font-family: serif; 
+}
+
+p { 
+    margin-bottom: 0.8em;
+    text-indent: 0em; 
+}
+
+h1 { 
+    text-align: left;  
+    margin-bottom: 1em; 
+}
+
+img { 
+    max-width: 100%; 
+    height: auto; 
+    display: block; 
+    margin: 1em auto; 
+}
+
+blockquote { 
+    border-left: 4px solid #eee; 
+    padding-left: 1em; 
+    font-style: italic; 
+}
+```
+
+<Accordion title="Why justified text?">
+  EPUB uses justified text with automatic hyphenation to create a book-like appearance:
+  
+  ```css
+  text-align: justify; 
+  hyphens: auto;
+  ```
+  
+  This works well on e-readers with adjustable text reflow. Most e-readers support the `hyphens` property for smooth justification.
+</Accordion>
+
+### EPUB generation
+
+Styles are applied during EPUB creation:
+
+```javascript
+const options = {
+    title: article.title,
+    author: article.byline || article.siteName || "Klip Reader",
+    publisher: article.siteName || "Klip Reader",
+    cover: coverPath,
+    css: kindleStyle,  // The CSS string defined above
+    content: [
+        {
+            title: article.title,
+            data: article.content,
+        }
+    ]
+};
+
+await new Epub(options, outputFilePath).promise;
+```
+
+## PDF styling
+
+PDF exports use inline styles in a complete HTML document.
+
+### PDF template structure
+
+From `processor_pdf.js:19-134`:
+
+```html
+<html lang="en">
+  <head>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,400&display=swap');
+      
+      body {
+        background-color: #fbf0d9;
+        color: #3b2e1e;
+        font-family: 'Lora', serif;
+        line-height: 1.6;
+        margin: 0;
+        padding: 0;
+      }
+      
+      .content-wrapper {
+        padding: 40px 50px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="content-wrapper">
+      <div class="metadata">SITE NAME | AUTHOR</div>
+      <h1>Article Title</h1>
+      <!-- Article content -->
+    </div>
+  </body>
+</html>
+```
+
+### PDF-specific styles
+
+```css
+.metadata {
+    font-family: sans-serif;
+    font-size: 14px;
+    color: #705d42;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 30px;
+    border-bottom: 1px solid #e5d8bc;
+    padding-bottom: 10px;
+}
+
+img {
+    max-width: 100%; 
+    height: auto; 
+    display: block; 
+    margin: 30px auto;
+    border-radius: 2px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+}
+
+blockquote {
+    border-left: 4px solid #dcd0b5;
+    padding-left: 20px;
+    margin: 30px 0;
+    font-style: italic;
+    color: #5a4a35;
+}
+```
+
+### Page break control
+
+PDFs use CSS to prevent awkward page breaks:
+
+```css
+p, h1, h2, blockquote, pre, img {
+    page-break-inside: avoid;
+}
+```
+
+<Tip>
+This ensures images and code blocks aren't split across pages when reading PDFs on e-readers.
+</Tip>
+
+### PDF viewport settings
+
+The PDF is generated with specific dimensions optimized for e-readers:
+
+```javascript
+await page.setViewport({ width: 1264, height: 1680 });
+
+await page.pdf({
+    path: outputPath,
+    width: '1264px',
+    height: '1680px',
+    printBackground: true,
+    margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
+});
+```
+
+<Info>
+These dimensions (1264x1680) work well on 6-inch e-readers while maintaining readability on larger screens.
+</Info>
+
+## Code block styling
+
+Both formats use identical code styling for consistency.
+
+### Block code
+
+```css
+pre, .gist, .highlight {
+    font-family: "Courier New", monospace !important;
+    text-align: left !important;
+    white-space: pre !important;  /* Preserves indentation */
+    word-wrap: normal !important;
+    background: #f5f5f5 !important;
+    padding: 10px 15px;
+    display: block;
+    margin: 1em 0;
+    border-radius: 4px;
+    line-height: 1.3 !important;
+    font-size: 0.9em !important;
+    color: #24292e !important;
+}
+```
+
+<Note>
+The `white-space: pre` property is critical for maintaining code indentation extracted from the original page.
+</Note>
+
+### Inline code
+
+```css
+p code, li code {
+    font-family: "Courier New", monospace !important;
+    white-space: normal !important;  /* Allows wrapping */
+    background: #f5f5f5 !important;
+    padding: 2px 4px;
+    display: inline !important;
+    border-radius: 2px;
+}
+```
+
+Inline code uses `white-space: normal` to wrap within paragraphs, while block code preserves formatting.
+
+## Syntax highlighting
+
+Klip preserves syntax highlighting classes from the source page and applies color overrides:
+
+```css
+/* Keywords - red */
+.pl-k, .k { 
+    color: #d73a49 !important; 
+    font-weight: bold; 
+}
+
+/* Function names - purple */
+.pl-en, .nf { 
+    color: #6f42c1 !important; 
+}
+
+/* Strings - blue */
+.pl-s, .s { 
+    color: #032f62 !important; 
+}
+
+/* Comments - gray */
+.pl-c, .c { 
+    color: #6a737d !important; 
+    font-style: italic; 
+}
+
+/* Variables - orange */
+.pl-v, .nv { 
+    color: #e36209 !important; 
+}
+```
+
+<Accordion title="Syntax highlighting class support">
+  Klip supports multiple syntax highlighting libraries:
+  
+  - **GitHub Linguist** - `.pl-k`, `.pl-en`, `.pl-s`, etc.
+  - **Pygments** - `.k`, `.nf`, `.s`, etc.
+  - **Prism.js** - Falls back to generic code styling
+  - **highlight.js** - Falls back to generic code styling
+  
+  The `keepClasses: true` option in Readability ensures these classes are preserved during extraction.
+</Accordion>
+
+## Cover generation
+
+EPUB files include a custom-generated cover image.
+
+### Cover design
+
+From `processor_epub.js:8-52`:
+
+```javascript
+const coverHtml = `
+  <html>
+    <head>
+      <link href="https://fonts.googleapis.com/css2?family=Lora:wght@700&family=Inter:wght@400&display=swap" rel="stylesheet">
+      <style>
+        body {
+          margin: 0; padding: 0;
+          background-color: #fbf0d9; /* Sepia */
+          color: #3b2e1e;
+          display: flex; flex-direction: column;
+          justify-content: center; align-items: center;
+          height: 800px; width: 600px;
+          border: 30px solid #3b2e1e;
+          box-sizing: border-box; text-align: center;
+        }
+        .site {
+          font-family: 'Inter', sans-serif;
+          font-size: 22px; text-transform: uppercase;
+          letter-spacing: 5px; margin-bottom: 40px; opacity: 0.7;
+        }
+        .title {
+          font-family: 'Lora', serif;
+          font-size: 44px; padding: 0 50px; line-height: 1.3;
+        }
+        .line {
+          width: 100px; height: 3px; background: #3b2e1e; margin: 40px 0;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="site">${siteName || 'WEB ARTICLE'}</div>
+      <div class="line"></div>
+      <div class="title">${title}</div>
+      <div class="line"></div>
+    </body>
+  </html>
+`;
+```
+
+### Cover rendering
+
+Covers are generated using Puppeteer screenshots:
+
+```javascript
+const page = await browserInstance.newPage();
+await page.setViewport({ width: 600, height: 800 });
+await page.setContent(coverHtml);
+await page.screenshot({ path: outputPath, type: 'jpeg', quality: 90 });
+```
+
+<Tip>
+The cover uses the same sepia color scheme as the article content for visual consistency in your e-reader library.
+</Tip>
+
+## Customizing styles
+
+To modify the styling, edit the CSS strings in the processor files.
+
+### EPUB customization
+
+Edit `processors/processor_epub.js` around line 70:
+
+```javascript
+const kindleStyle = `
+    body { 
+        // Your custom styles here
+    }
+`;
+```
+
+### PDF customization
+
+Edit `processors/processor_pdf.js` around line 22:
+
+```javascript
+const formattedHtml = `
+  <html lang="en">
+    <head>
+      <style>
+        // Your custom styles here
+      </style>
+    </head>
+    ...
+`;
+```
+
+<Warning>
+After modifying styles, restart the server for changes to take effect. Test with various article types to ensure compatibility.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Content processing" href="/advanced/content-processing" icon="gears">
+    Learn how Klip extracts and processes web content
+  </Card>
+  <Card title="Troubleshooting" href="/advanced/troubleshooting" icon="wrench">
+    Solve common styling and rendering issues
+  </Card>
+</CardGroup>

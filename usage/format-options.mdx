@@ -1,0 +1,400 @@
+---
+title: Format options
+description: Understanding the differences between EPUB and PDF output formats
+---
+
+Klip supports two output formats for clipped articles: EPUB and PDF. Each format has different characteristics and rendering behaviors on e-readers.
+
+## Choosing a format
+
+Both formats are optimized for e-ink displays, but they handle content differently.
+
+<Tabs>
+  <Tab title="EPUB">
+    **Best for:** Articles you want to read with adjustable fonts and reflowable text.
+    
+    EPUB files are essentially packaged HTML/CSS that e-readers render dynamically. The reader controls:
+    - Font family
+    - Font size
+    - Margins
+    - Line spacing (with some limitations)
+    
+    **Recommended for:**
+    - Long-form articles
+    - Text-heavy content
+    - Reading on different devices
+  </Tab>
+  
+  <Tab title="PDF">
+    **Best for:** Articles with specific layouts or when you want consistent rendering.
+    
+    PDF files are fixed-layout documents rendered exactly as designed. What you see is what you get across all devices.
+    
+    **Recommended for:**
+    - Articles with important visual layouts
+    - Content with embedded images
+    - Consistent reading experience
+  </Tab>
+</Tabs>
+
+## EPUB format
+
+EPUB files are generated using the `epub-gen` library with custom styling optimized for e-readers.
+
+### EPUB features
+
+<Steps>
+  <Step title="Custom cover generation">
+    Each EPUB includes a dynamically generated cover with the article title and source (from `processor_epub.js:8-52`):
+    
+    ```javascript
+    const coverHtml = `
+      <html>
+        <head>
+          <link href="https://fonts.googleapis.com/css2?family=Lora:wght@700&family=Inter:wght@400&display=swap" rel="stylesheet">
+          <style>
+            body {
+              background-color: #fbf0d9; /* Edge Sepia */
+              color: #3b2e1e;
+              display: flex; flex-direction: column;
+              justify-content: center; align-items: center;
+              height: 800px; width: 600px;
+              border: 30px solid #3b2e1e;
+            }
+            .site {
+              font-family: 'Inter', sans-serif;
+              font-size: 22px; text-transform: uppercase;
+              letter-spacing: 5px;
+            }
+            .title {
+              font-family: 'Lora', serif;
+              font-size: 44px; padding: 0 50px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="site">${siteName || 'WEB ARTICLE'}</div>
+          <div class="line"></div>
+          <div class="title">${title}</div>
+        </body>
+      </html>
+    `;
+    ```
+    
+    The cover is rendered as a 600x800px JPEG using Puppeteer.
+  </Step>
+  
+  <Step title="E-reader optimized styling">
+    EPUB content uses custom CSS designed for comfortable reading on e-ink displays (from `processor_epub.js:70-135`):
+    
+    ```css
+    body { 
+        text-align: justify; 
+        hyphens: auto;
+        line-height: 1.6; 
+        font-family: serif; 
+    }
+    
+    p { 
+        margin-bottom: 0.8em;
+        text-indent: 0em; 
+    }
+    
+    img { 
+        max-width: 100%; 
+        height: auto; 
+        display: block; 
+        margin: 1em auto; 
+    }
+    
+    blockquote { 
+        border-left: 4px solid #eee; 
+        padding-left: 1em; 
+        font-style: italic; 
+    }
+    ```
+  </Step>
+  
+  <Step title="Code block formatting">
+    Programming content gets monospace fonts with preserved formatting:
+    
+    ```css
+    pre, .gist, .highlight {
+        font-family: "Courier New", monospace !important;
+        text-align: left !important;
+        white-space: pre !important;
+        background: #f5f5f5 !important;
+        padding: 10px 15px;
+        line-height: 1.3 !important;
+        font-size: 0.9em !important;
+    }
+    
+    p code, li code {
+        font-family: "Courier New", monospace !important;
+        background: #f5f5f5 !important;
+        padding: 2px 4px;
+    }
+    ```
+  </Step>
+  
+  <Step title="Syntax highlighting">
+    Code syntax is styled with subtle colors that work on e-ink:
+    
+    ```css
+    .pl-k, .k { color: #d73a49 !important; font-weight: bold; }
+    .pl-en, .nf { color: #6f42c1 !important; }
+    .pl-s, .s { color: #032f62 !important; }
+    .pl-c, .c { color: #6a737d !important; font-style: italic; }
+    ```
+  </Step>
+</Steps>
+
+### EPUB metadata
+
+Each EPUB includes metadata extracted from the article (from `processor_epub.js:137-149`):
+
+```javascript
+const options = {
+    title: article.title,
+    author: article.byline || article.siteName || "Klip Reader",
+    publisher: article.siteName || "Klip Reader",
+    cover: coverPath,
+    css: kindleStyle,
+    content: [
+        {
+            title: article.title,
+            data: article.content,
+        }
+    ]
+};
+```
+
+<Info>
+The `author` field uses the article byline when available, falling back to the site name or "Klip Reader".
+</Info>
+
+## PDF format
+
+PDF files are generated by rendering HTML content to a fixed-size page using Puppeteer.
+
+### PDF features
+
+<Steps>
+  <Step title="Fixed dimensions">
+    PDFs are rendered at Kindle Paperwhite resolution (from `processor_pdf.js:136-147`):
+    
+    ```javascript
+    await page.setViewport({ width: 1264, height: 1680 });
+    
+    await page.pdf({
+        path: outputPath,
+        width: '1264px',
+        height: '1680px',
+        printBackground: true,
+        margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
+    });
+    ```
+    
+    These dimensions (1264x1680) match the Kindle Paperwhite screen resolution.
+  </Step>
+  
+  <Step title="Sepia background">
+    PDFs use a warm sepia background for comfortable reading (from `processor_pdf.js:26-32`):
+    
+    ```css
+    body {
+        background-color: #fbf0d9; /* Edge Sepia Background */
+        color: #3b2e1e;            /* Soft Brown Text */
+        font-family: 'Lora', serif;
+        line-height: 1.6;
+    }
+    ```
+  </Step>
+  
+  <Step title="Typography">
+    PDFs use the Lora serif font loaded from Google Fonts:
+    
+    ```css
+    @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,400&display=swap');
+    
+    h1 { 
+        font-size: 32px; 
+        line-height: 1.2; 
+        font-weight: 700;
+    }
+    
+    p { 
+        margin-bottom: 1.5em; 
+        font-size: 20px; 
+    }
+    ```
+  </Step>
+  
+  <Step title="Metadata header">
+    Each PDF includes a header with the article source and author (from `processor_pdf.js:128`):
+    
+    ```html
+    <div class="metadata">${article.siteName || 'Article'} | ${article.byline || 'Read Now'}</div>
+    <h1>${article.title}</h1>
+    ${article.content}
+    ```
+    
+    The header uses sans-serif typography:
+    
+    ```css
+    .metadata {
+        font-family: sans-serif;
+        font-size: 14px;
+        color: #705d42;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 1px solid #e5d8bc;
+    }
+    ```
+  </Step>
+</Steps>
+
+### PDF page breaking
+
+PDFs include page break rules to prevent awkward splits (from `processor_pdf.js:88-90`):
+
+```css
+p, h1, h2, blockquote, pre, img {
+    page-break-inside: avoid;
+}
+```
+
+This ensures paragraphs, headings, and images don't split across pages.
+
+## Styling differences
+
+Both formats share similar base styles, but there are key differences in how they're applied.
+
+### Shared styles
+
+Both EPUB and PDF use identical code block and syntax highlighting styles:
+
+```css
+/* Block Code */
+pre, .gist, .highlight {
+    font-family: "Courier New", monospace !important;
+    background: #f5f5f5 !important;
+    padding: 10px 15px;
+    font-size: 0.9em !important;
+    color: #24292e !important;
+}
+
+/* Inline Code */
+p code, li code {
+    font-family: "Courier New", monospace !important;
+    background: #f5f5f5 !important;
+    padding: 2px 4px;
+}
+```
+
+### Format-specific differences
+
+<Tabs>
+  <Tab title="Text rendering">
+    **EPUB**
+    - Reader-controlled font size
+    - Automatic hyphenation
+    - Reflowable text
+    - Text justification
+    
+    **PDF**
+    - Fixed 20px font size
+    - Fixed line height (1.6)
+    - Fixed page dimensions
+    - Consistent rendering across devices
+  </Tab>
+  
+  <Tab title="Images">
+    **EPUB**
+    - Simple centering with auto margins
+    - Scales with reader zoom
+    - May reflow on different devices
+    
+    **PDF**
+    - Enhanced styling with shadows
+    - Fixed positioning
+    - Consistent size across devices
+    
+    ```css
+    /* PDF only */
+    img {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+        border-radius: 2px;
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Backgrounds">
+    **EPUB**
+    - Background color may be overridden by reader settings
+    - Some readers ignore background colors
+    
+    **PDF**
+    - Guaranteed sepia background (#fbf0d9)
+    - Exact color rendering
+    - `printBackground: true` ensures it renders
+  </Tab>
+</Tabs>
+
+## Content extraction
+
+Both formats use the same content extraction process with Mozilla Readability (from `processor_epub.js:58-62` and `processor_pdf.js:9-13`):
+
+```javascript
+const reader = new Readability(doc.window.document, {
+    keepClasses: true,
+    charThreshold: 20
+});
+const article = reader.parse();
+```
+
+<Note>
+The `keepClasses: true` option preserves CSS classes for code blocks and syntax highlighting.
+</Note>
+
+## File size considerations
+
+<Info>
+EPUB files are typically smaller than PDFs for the same content.
+</Info>
+
+**EPUB advantages:**
+- Compressed HTML/CSS
+- Images can be optimized
+- Smaller file transfers
+
+**PDF advantages:**
+- Single-file simplicity
+- No rendering variations
+- Works everywhere
+
+## Recommendations
+
+Choose your format based on your reading preferences:
+
+<Tabs>
+  <Tab title="Use EPUB for">
+    - Long articles you want to read over multiple sessions
+    - Content where you prefer larger fonts
+    - Reading on multiple devices with different screen sizes
+    - Minimizing storage space
+    - Articles without complex layouts
+  </Tab>
+  
+  <Tab title="Use PDF for">
+    - Articles with important visual design
+    - Content with many images
+    - When you want consistent rendering
+    - Reading on Kindle Paperwhite (matches screen dimensions)
+    - Articles where layout matters
+  </Tab>
+</Tabs>
+
+<Tip>
+You can clip the same article in both formats to compare - just send two clip requests with different `format` parameters.
+</Tip>

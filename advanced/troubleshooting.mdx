@@ -1,0 +1,448 @@
+---
+title: Troubleshooting
+description: Solutions for common issues with Klip server, plugin, and content processing
+---
+
+This guide covers common issues you might encounter with Klip and how to resolve them.
+
+## Server issues
+
+### Server fails to start
+
+<Accordion title="Port already in use">
+  **Problem:** Server fails with `EADDRINUSE` error.
+  
+  **Solution:** Change the port in your environment variables:
+  
+  ```bash
+  PORT=3001 node server.js
+  ```
+  
+  Or in `docker-compose.yml`:
+  
+  ```yaml
+  environment:
+    - PORT=3001
+  ports:
+    - "3001:3001"
+  ```
+</Accordion>
+
+<Accordion title="Puppeteer fails in Docker">
+  **Problem:** Browser crashes with `Failed to launch the browser process`.
+  
+  **Solution:** Ensure you're using the correct Puppeteer executable path in Docker:
+  
+  ```dockerfile
+  ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+  ```
+  
+  Verify Chromium is installed:
+  
+  ```bash
+  docker-compose exec server which chromium-browser
+  ```
+</Accordion>
+
+<Accordion title="Out of memory errors">
+  **Problem:** Node process crashes with heap out of memory.
+  
+  **Solution:** Increase Node.js memory limit:
+  
+  ```bash
+  NODE_OPTIONS="--max-old-space-size=2048" node server.js
+  ```
+  
+  Or limit concurrent processing by ensuring browsers close properly between requests.
+</Accordion>
+
+### CORS errors
+
+<Warning>
+If you're calling the API from a browser extension and seeing CORS errors, ensure the server has CORS enabled.
+</Warning>
+
+The server includes CORS by default:
+
+```javascript
+const cors = require("cors");
+app.use(cors());
+```
+
+If you need to restrict origins, configure CORS explicitly:
+
+```javascript
+app.use(cors({
+    origin: ['https://your-extension-id.chromiumapp.org']
+}));
+```
+
+## Article conversion issues
+
+### Articles fail to convert
+
+<Accordion title="Readability can't parse content">
+  **Problem:** Server returns `Could not parse article` or `Failed to parse article content`.
+  
+  **Causes:**
+  - Paywalled content
+  - Page is mostly images/video with minimal text
+  - Unusual page structure
+  
+  **Solution:**
+  Try visiting the URL manually to confirm it's accessible. If the site requires authentication, Klip can't access it. For JavaScript-heavy sites, try `best_effort` mode:
+  
+  ```json
+  {
+    "url": "https://example.com/article",
+    "mode": "best_effort"
+  }
+  ```
+</Accordion>
+
+<Accordion title="Timeout errors">
+  **Problem:** Request times out after 45 seconds.
+  
+  **Solution:** The page is too slow or unresponsive. Check:
+  
+  1. Can you access the URL in a regular browser?
+  2. Does the page load quickly?
+  3. Is your server's internet connection stable?
+  
+  To increase the timeout, edit `utils/crawler.js:58`:
+  
+  ```javascript
+  await page.goto(url, { waitUntil: waitCondition, timeout: 60000 }); // 60 seconds
+  ```
+</Accordion>
+
+<Accordion title="Missing images">
+  **Problem:** EPUB/PDF contains broken or missing images.
+  
+  **Causes:**
+  - Images are behind authentication
+  - Lazy loading not properly handled
+  - Image URLs are relative and not resolved
+  
+  **Solution:**
+  1. Use `best_effort` mode for better lazy-loading support
+  2. Verify images are publicly accessible
+  3. Check that JSDOM receives the correct URL for resolving relative paths:
+  
+  ```javascript
+  const doc = new JSDOM(fullHtml, { url }); // URL needed for relative links
+  ```
+</Accordion>
+
+### Code blocks not rendering properly
+
+<Note>
+Klip preserves code formatting through multiple techniques. If code looks wrong, the source page may use non-standard markup.
+</Note>
+
+**Check these common issues:**
+
+1. **White space not preserved**
+   
+   Verify the CSS includes:
+   ```css
+   pre {
+       white-space: pre !important;
+   }
+   ```
+
+2. **Syntax highlighting lost**
+   
+   Ensure Readability preserves classes:
+   ```javascript
+   const reader = new Readability(doc.window.document, {
+       keepClasses: true,
+       charThreshold: 20
+   });
+   ```
+
+3. **GitHub Gists not converting**
+   
+   Verify the gist conversion code runs during page processing in `utils/crawler.js:64-77`.
+
+## KOReader plugin issues
+
+### Plugin doesn't appear in KOReader
+
+<Accordion title="Installation location">
+  **Problem:** Plugin not visible in the menu.
+  
+  **Solution:** Verify the plugin is in the correct directory:
+  
+  ```bash
+  /mnt/us/koreader/plugins/klip.koplugin/
+  ```
+  
+  The directory structure should be:
+  ```
+  klip.koplugin/
+  ├── main.lua
+  ├── klip/
+  │   ├── sync_client (binary)
+  │   └── config.json
+  └── ...
+  ```
+</Accordion>
+
+<Accordion title="Binary architecture mismatch">
+  **Problem:** Plugin crashes or sync_client fails to execute.
+  
+  **Solution:** Ensure the Go binary is compiled for your device's architecture:
+  
+  **Kindle Paperwhite, Kindle Oasis (ARM7):**
+  ```bash
+  GOOS=linux GOARCH=arm GOARM=7 go build -o sync_client
+  ```
+  
+  **Kobo devices (ARM5):**
+  ```bash
+  GOOS=linux GOARCH=arm GOARM=5 go build -o sync_client
+  ```
+  
+  **Check architecture:**
+  ```bash
+  file /mnt/us/koreader/plugins/klip.koplugin/klip/sync_client
+  ```
+</Accordion>
+
+<Accordion title="Permission errors">
+  **Problem:** Plugin installed but won't execute.
+  
+  **Solution:** Make the sync client executable:
+  
+  ```bash
+  chmod +x /mnt/us/koreader/plugins/klip.koplugin/klip/sync_client
+  ```
+</Accordion>
+
+### Sync fails
+
+<Accordion title="Can't connect to server">
+  **Problem:** Sync fails with connection error.
+  
+  **Check:**
+  
+  1. Server URL is correct in plugin settings
+  2. Server is accessible from your device:
+     ```bash
+     curl http://your-server:3000/sync
+     ```
+  3. Network connectivity (WiFi enabled on device)
+  4. Firewall isn't blocking the connection
+  
+  **For local servers:**
+  Use your computer's local IP address (not `localhost`):
+  ```
+  http://192.168.1.100:3000
+  ```
+</Accordion>
+
+<Accordion title="Download folder errors">
+  **Problem:** Sync appears to work but files don't appear.
+  
+  **Solution:** Verify the download folder:
+  
+  1. Exists on the device
+  2. Has write permissions
+  3. Is spelled correctly in config (case-sensitive)
+  
+  Common paths:
+  - Kindle: `/mnt/us/documents/klip/`
+  - Kobo: `/mnt/onboard/klip/`
+  
+  Create the folder:
+  ```bash
+  mkdir -p /mnt/us/documents/klip
+  ```
+</Accordion>
+
+<Accordion title="Files don't delete from server">
+  **Problem:** Articles download but remain on server.
+  
+  **Cause:** The sync client sends a batch delete request after successful downloads.
+  
+  **Check:**
+  
+  1. Server logs for delete requests:
+     ```bash
+     docker-compose logs -f server
+     ```
+  
+  2. Network didn't disconnect mid-sync
+  
+  3. Delete endpoint is working:
+     ```bash
+     curl -X POST http://your-server:3000/clips/batch-delete \
+       -H "Content-Type: application/json" \
+       -d '{"filenames": ["test.epub"]}'
+     ```
+</Accordion>
+
+## Environment-specific issues
+
+### Docker issues
+
+<Warning>
+Docker containers need special configuration for Puppeteer to work correctly.
+</Warning>
+
+**Essential Dockerfile setup:**
+
+```dockerfile
+# Install Chromium dependencies
+RUN apt-get update && apt-get install -y \
+    chromium \
+    chromium-sandbox \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+```
+
+**Required launch args:**
+
+```javascript
+args: [
+    '--no-sandbox',              // Required in Docker
+    '--disable-setuid-sandbox',  // Required in Docker
+    '--disable-dev-shm-usage',   // Prevents memory issues
+    '--disable-gpu'              // Not needed headless
+]
+```
+
+### Debugging tips
+
+<Accordion title="Enable verbose logging">
+  Add logging throughout the processing pipeline:
+  
+  ```javascript
+  // In server.js
+  console.log(`[${new Date().toISOString()}] Clipping (${format}): ${url}`);
+  
+  // In processors
+  console.log('Article parsed:', article.title);
+  console.log('Content length:', article.content.length);
+  
+  // In crawler.js
+  console.log(`Fetching ${url} in ${mode} mode`);
+  ```
+</Accordion>
+
+<Accordion title="Check crash logs on device">
+  KOReader logs crashes to help diagnose plugin issues:
+  
+  ```bash
+  cat /mnt/us/koreader/crash.log
+  ```
+  
+  Look for:
+  - Plugin load errors
+  - Lua syntax errors  
+  - Binary execution failures
+</Accordion>
+
+<Accordion title="Test API manually">
+  Use curl to test the clip endpoint:
+  
+  ```bash
+  curl -X POST http://localhost:3000/clip \
+    -H "Content-Type: application/json" \
+    -d '{
+      "url": "https://example.com/article",
+      "format": "epub",
+      "mode": "fast"
+    }'
+  ```
+  
+  Successful response:
+  ```json
+  {
+    "success": true,
+    "id": "01933ea1-072e-7b42-9d91-3a4b5c6d7e8f",
+    "title": "Article Title",
+    "file": "01933ea1-072e-7b42-9d91-3a4b5c6d7e8f.epub",
+    "timestamp": 1234567890
+  }
+  ```
+</Accordion>
+
+<Accordion title="Inspect generated files">
+  Check the clips directory to verify files are created:
+  
+  ```bash
+  ls -lh /path/to/klip-server/clips/
+  ```
+  
+  Test EPUB validity:
+  ```bash
+  unzip -t file.epub
+  ```
+  
+  View PDF info:
+  ```bash
+  pdfinfo file.pdf
+  ```
+</Accordion>
+
+## Performance optimization
+
+### Slow conversion times
+
+<Tip>
+Average conversion times: **Fast mode** 2-5 seconds, **Best effort mode** 10-20 seconds.
+</Tip>
+
+If conversions take longer:
+
+1. **Use fast mode** unless you need better image handling
+2. **Check server resources** - Puppeteer is memory-intensive
+3. **Verify network speed** - Slow downloads delay processing
+4. **Monitor concurrent requests** - Process one article at a time
+
+### Memory usage
+
+Puppeteer can use 200-500MB per conversion. To optimize:
+
+```javascript
+// Ensure pages close properly
+try {
+    page = await browser.newPage();
+    // ... processing ...
+} finally {
+    if (page) await page.close();  // Critical!
+}
+```
+
+**Browser reuse:**
+
+Reusing browser instances saves memory but requires careful management:
+
+```javascript
+if (browserInstance) {
+    browser = browserInstance;  // Reuse existing
+} else {
+    browser = await launchBrowser();  // Create new
+    isInternalBrowser = true;
+}
+```
+
+## Getting more help
+
+<CardGroup cols={2}>
+  <Card title="Content processing" href="/advanced/content-processing" icon="gears">
+    Deep dive into how Klip processes web content
+  </Card>
+  <Card title="Styling" href="/advanced/styling" icon="paintbrush">
+    Understand the CSS styling system
+  </Card>
+</CardGroup>
+
+<Note>
+Still having issues? Check the server logs for detailed error messages and stack traces. Most problems are related to network access, file permissions, or architecture mismatches.
+</Note>

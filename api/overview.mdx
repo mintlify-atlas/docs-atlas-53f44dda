@@ -1,0 +1,42 @@
+---
+title: API overview
+description: Introduction to the Klip API for managing your read-it-later content
+---
+
+## Base URL
+
+The Klip API is available at your self-hosted instance:
+
+```
+http://localhost:3000
+```
+
+If you've configured a custom port using the `PORT` environment variable, replace `3000` with your configured port.
+
+## Authentication
+
+The current version of Klip does not require authentication. All endpoints are publicly accessible on your self-hosted instance.
+
+<Note>
+  Since Klip is designed for self-hosting, ensure your instance is protected by network-level security measures if exposed to the internet.
+</Note>
+
+## Content types
+
+All POST endpoints accept `application/json` request bodies and return JSON responses.
+
+## Available endpoints
+
+- **POST /clip** - Save a web article as PDF or EPUB
+- **GET /sync** - List all saved clips
+- **POST /clips/batch-delete** - Delete multiple clips at once
+
+## Response format
+
+Successful responses return JSON objects with relevant data. Error responses include an `error` field with a descriptive message:
+
+```json
+{
+  "error": "Error description"
+}
+```

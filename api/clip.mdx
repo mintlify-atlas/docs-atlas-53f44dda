@@ -1,0 +1,107 @@
+---
+title: Create clip
+description: Save a web article as a PDF or EPUB file
+---
+
+## Endpoint
+
+```
+POST /clip
+```
+
+Saves a web article by URL and converts it to either PDF or EPUB format.
+
+## Request body
+
+<ParamField path="url" type="string" required>
+  The URL of the web article to clip
+</ParamField>
+
+<ParamField path="format" type="string" default="epub">
+  The output format for the clipped article. Options:
+  - `epub` - EPUB format (default)
+  - `pdf` - PDF format
+</ParamField>
+
+<ParamField path="mode" type="string" default="fast">
+  The fetch mode for extracting article content. Options:
+  - `fast` - Quick extraction (default)
+  - `best_effort` - More thorough extraction, may take longer
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the clip was created successfully
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  A UUID v7 identifier for the created clip
+</ResponseField>
+
+<ResponseField name="title" type="string">
+  The extracted title of the article
+</ResponseField>
+
+<ResponseField name="file" type="string">
+  The filename of the created file (format: `{id}.{extension}`)
+</ResponseField>
+
+<ResponseField name="timestamp" type="number">
+  Unix timestamp (in milliseconds) when the clip was created
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```bash curl (EPUB)
+curl -X POST http://localhost:3000/clip \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/article"
+  }'
+```
+
+```bash curl (PDF)
+curl -X POST http://localhost:3000/clip \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/article",
+    "format": "pdf"
+  }'
+```
+
+```bash curl (Best effort mode)
+curl -X POST http://localhost:3000/clip \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/article",
+    "format": "epub",
+    "mode": "best_effort"
+  }'
+```
+
+</CodeGroup>
+
+## Example response
+
+```json
+{
+  "success": true,
+  "id": "01932e8f-7c9a-7890-b123-456789abcdef",
+  "title": "Example Article Title",
+  "file": "01932e8f-7c9a-7890-b123-456789abcdef.epub",
+  "timestamp": 1709481600000
+}
+```
+
+## Error responses
+
+If the clip fails, the API returns a 500 status code with an error message:
+
+```json
+{
+  "error": "Failed to fetch article content"
+}
+```

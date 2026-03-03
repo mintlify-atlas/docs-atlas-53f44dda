@@ -1,0 +1,358 @@
+---
+title: Sync client
+description: Understanding the Go sync binary that downloads articles from your Klip server
+---
+
+The sync client is a Go binary that handles downloading articles from your Klip server to your e-reader. It's executed by the KOReader plugin when you tap "Sync Now".
+
+## Overview
+
+The sync client performs these operations:
+
+1. Loads configuration from `config.json`
+2. Fetches the list of available articles from the server
+3. Downloads new articles that don't already exist locally
+4. Notifies the server to delete successfully downloaded articles
+
+## Building the binary
+
+The sync client is written in Go and must be compiled for your e-reader's architecture.
+
+### Requirements
+
+- Go 1.24.0 or later (see `go.mod:3`)
+- Cross-compilation support for ARM
+
+### Build commands
+
+<Warning>
+The binary architecture must match your e-reader. Using the wrong architecture will cause silent failures.
+</Warning>
+
+For most Kindle devices:
+
+```bash
+cd klip.koplugin/klip
+GOOS=linux GOARCH=arm GOARM=7 go build -o klip main.go
+```
+
+For older ARM5 devices:
+
+```bash
+GOOS=linux GOARCH=arm GOARM=5 go build -o klip main.go
+```
+
+The compiled binary must be placed at:
+```
+klip.koplugin/klip/klip
+```
+
+## Configuration
+
+The sync client reads its configuration from `config.json` in the same directory as the binary.
+
+### Configuration structure
+
+```go
+type Config struct {
+    ServerUrl    string `json:"server_url"`
+    DownloadPath string `json:"download_path"`
+}
+```
+
+See `main.go:15-18`.
+
+### Example configuration
+
+```json
+{
+  "server_url": "http://192.168.1.50:3000",
+  "download_path": "/mnt/us/documents/Klip"
+}
+```
+
+<Note>
+This configuration file is created and managed by the KOReader plugin's Lua interface. You typically don't need to edit it manually.
+</Note>
+
+## How it works
+
+### Loading configuration (main.go:82-103)
+
+The binary locates its own path and reads `config.json` from the same directory:
+
+```go
+func loadConfig() (Config, error) {
+    execPath, err := os.Executable()
+    if err != nil {
+        return Config{}, err
+    }
+    
+    configPath := filepath.Join(filepath.Dir(execPath), "config.json")
+    
+    fileContents, err := os.ReadFile(configPath)
+    if err != nil {
+        return Config{}, err
+    }
+    
+    var conf Config
+    err = json.Unmarshal(fileContents, &conf)
+    return conf, err
+}
+```
+
+### Creating download directory (main.go:32-39)
+
+If the download path doesn't exist, the binary creates it:
+
+```go
+if _, err := os.Stat(config.DownloadPath); err != nil {
+    if !os.IsNotExist(err) {
+        log.Println(err)
+        os.Exit(1)
+    }
+    os.MkdirAll(config.DownloadPath, 0755)
+}
+```
+
+### Fetching article list (main.go:105-125)
+
+The binary requests the list of available articles from the `/sync` endpoint:
+
+```go
+func fetchArticles(url string) ([]Article, error) {
+    resp, err := http.Get(fmt.Sprintf("%s/sync", url))
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("received non ok status code while trying to sync: %d", resp.StatusCode)
+    }
+    
+    var articles []Article
+    err = json.NewDecoder(resp.Body).Decode(&articles)
+    return articles, err
+}
+```
+
+### Article structure
+
+```go
+type Article struct {
+    FileName    string `json:"filename"`
+    DownloadUrl string `json:"download_url"`
+}
+```
+
+See `main.go:20-23`.
+
+### Downloading articles (main.go:54-69)
+
+For each article, the binary:
+
+1. Checks if the file already exists locally
+2. Skips download if it exists (marks as successful)
+3. Downloads new articles via HTTP GET
+4. Tracks successful downloads
+
+```go
+for _, article := range articles {
+    localPath := filepath.Join(config.DownloadPath, article.FileName)
+    
+    if _, err := os.Stat(localPath); err == nil {
+        successfulDownloads = append(successfulDownloads, article.FileName)
+        continue
+    }
+    
+    err := downloadArticle(article.DownloadUrl, localPath)
+    if err != nil {
+        log.Printf("Failed to download %s: %v\n", article.FileName, err)
+        continue
+    }
+    
+    successfulDownloads = append(successfulDownloads, article.FileName)
+}
+```
+
+### Download implementation (main.go:127-146)
+
+```go
+func downloadArticle(url, path string) error {
+    resp, err := http.Get(url)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        return fmt.Errorf("received %d status while trying to download to %s", resp.StatusCode, path)
+    }
+    
+    file, err := os.Create(path)
+    if err != nil {
+        return err
+    }
+    
+    _, err = io.Copy(file, resp.Body)
+    return err
+}
+```
+
+### Batch deletion (main.go:71-77, 148-172)
+
+After successful downloads, the binary notifies the server to delete those articles:
+
+```go
+if len(successfulDownloads) > 0 {
+    err := batchDeleteArticlesFromServer(config.ServerUrl, successfulDownloads)
+    if err != nil {
+        log.Printf("Failed to batch delete downloaded articles: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+The deletion request:
+
+```go
+func batchDeleteArticlesFromServer(url string, articles []string) error {
+    body := struct {
+        Files []string `json:"filenames"`
+    }{
+        Files: articles,
+    }
+    
+    jsonPayload, err := json.Marshal(body)
+    if err != nil {
+        return err
+    }
+    
+    client := http.Client{Timeout: 5 * time.Second}
+    
+    resp, err := client.Post(
+        fmt.Sprintf("%s/clips/batch-delete", url),
+        "application/json",
+        bytes.NewBuffer(jsonPayload)
+    )
+    if err != nil {
+        return err
+    }
+    
+    if resp.StatusCode != http.StatusAccepted {
+        return fmt.Errorf("received %d status while deleting downloaded articles", resp.StatusCode)
+    }
+    
+    return nil
+}
+```
+
+## Exit codes
+
+The binary uses standard exit codes:
+
+- `0` - Success (all operations completed)
+- `1` - Failure (configuration error, network error, or deletion failure)
+
+<Info>
+The KOReader plugin checks the exit code to determine sync success (see `main.lua:111-112`).
+</Info>
+
+## API endpoints used
+
+### GET /sync
+
+Fetches the list of articles available for download.
+
+**Response:**
+```json
+[
+  {
+    "filename": "article-title.epub",
+    "download_url": "http://server:3000/downloads/article-title.epub"
+  }
+]
+```
+
+### POST /clips/batch-delete
+
+Notifies the server to delete successfully downloaded articles.
+
+**Request:**
+```json
+{
+  "filenames": ["article-title.epub", "another-article.pdf"]
+}
+```
+
+**Expected response:** HTTP 202 Accepted
+
+## Logging
+
+The binary logs to stdout/stderr:
+
+```go
+log.Println("No new articles to download")
+log.Printf("Failed to download %s: %v\n", article.FileName, err)
+log.Printf("Failed to batch delete downloaded articles: %v\n", err)
+```
+
+<Note>
+The KOReader plugin redirects output to `/dev/null` (see `main.lua:108`), so these logs won't be visible during normal operation. For debugging, modify the plugin to capture stdout/stderr.
+</Note>
+
+## Troubleshooting
+
+### "No such file or directory" error
+
+**Cause:** The `config.json` file doesn't exist.
+
+**Solution:** Ensure the KOReader plugin has been configured at least once. The Lua plugin creates this file when you save settings.
+
+### Downloads fail silently
+
+**Possible causes:**
+- Network connectivity issues
+- Server is unreachable
+- Download URLs are incorrect
+- Disk space issues
+
+**Solution:** Run the binary manually from SSH to see error messages:
+```bash
+cd /mnt/us/koreader/plugins/klip.koplugin
+./klip/klip
+```
+
+### "Exec format error"
+
+**Cause:** Binary was compiled for the wrong architecture.
+
+**Solution:** Rebuild with the correct `GOARCH` and `GOARM` values for your device.
+
+### Articles download but server doesn't delete them
+
+**Cause:** The batch delete request is failing.
+
+**Solution:** 
+- Check that your server implements the `/clips/batch-delete` endpoint
+- Verify it returns HTTP 202 Accepted
+- Check server logs for errors
+
+### Timeout errors
+
+**Cause:** The batch delete uses a 5-second timeout (main.go:160).
+
+**Solution:** If your server is slow to respond, you may need to increase the timeout in the source code and rebuild.
+
+## Performance considerations
+
+- Downloads are sequential, not parallel
+- Existing files are skipped (no re-download)
+- Network timeout is 5 seconds for batch delete
+- No retry logic on failed downloads
+- Memory efficient (streams file downloads with `io.Copy`)
+
+<Tip>
+If you have many articles, the sync may take several minutes. The KOReader plugin shows a "Syncing with Server..." message during this time.
+</Tip>

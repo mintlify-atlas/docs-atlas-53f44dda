@@ -1,0 +1,61 @@
+---
+title: Batch delete clips
+description: Delete multiple clips in a single request
+---
+
+## Endpoint
+
+```
+POST /clips/batch-delete
+```
+
+Deletes multiple clip files from your Klip server. The deletion happens asynchronously in the background after the API responds.
+
+## Request body
+
+<ParamField path="filenames" type="array" required>
+  An array of filenames to delete. Each filename should match a saved clip file (e.g., `{id}.epub` or `{id}.pdf`).
+</ParamField>
+
+## Response
+
+The endpoint returns a `202 Accepted` status code immediately, indicating the deletion request has been accepted and will be processed in the background.
+
+<Note>
+  The deletion is performed asynchronously. The API responds immediately with a 202 status, and files are deleted in the background.
+</Note>
+
+## Example
+
+<CodeGroup>
+
+```bash curl
+curl -X POST http://localhost:3000/clips/batch-delete \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filenames": [
+      "01932e8f-7c9a-7890-b123-456789abcdef.epub",
+      "01932e90-1234-5678-9abc-def012345678.pdf"
+    ]
+  }'
+```
+
+</CodeGroup>
+
+## Error responses
+
+If the request payload is invalid (missing `filenames` or not an array), the API returns a 400 status code:
+
+```json
+{
+  "error": "Invalid Payload"
+}
+```
+
+## Security
+
+The endpoint uses `path.basename()` to sanitize filenames and prevent directory traversal attacks. Only files within the clips directory can be deleted.
+
+<Note>
+  Files that don't exist are silently ignored during deletion. Only actual deletion errors are logged server-side.
+</Note>

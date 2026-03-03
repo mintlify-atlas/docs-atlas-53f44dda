@@ -1,0 +1,270 @@
+---
+title: Configuration
+description: Environment variables and configuration options for Klip server
+---
+
+Klip server is configured using environment variables. All configuration is optional with sensible defaults.
+
+## Environment variables
+
+### PORT
+
+The port number the server listens on.
+
+- **Type:** Number
+- **Default:** `3000`
+- **Required:** No
+
+```bash
+PORT=3000
+```
+
+<CodeGroup>
+  ```bash Terminal
+  export PORT=8080
+  node server.js
+  ```
+
+  ```yaml docker-compose.yml
+  services:
+    klip:
+      environment:
+        PORT: 8080
+      ports:
+        - "8080:8080"
+  ```
+
+  ```bash .env
+  PORT=8080
+  ```
+</CodeGroup>
+
+**Usage in code:**
+
+```javascript server.js:94-96
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Klip Server active on http://localhost:${PORT}`);
+});
+```
+
+### DOWNLOAD_URL
+
+The public URL prefix used for serving generated clips to clients. This URL is returned in API responses and must be accessible by clients downloading the files.
+
+- **Type:** String (URL)
+- **Default:** None (must be set for sync functionality)
+- **Required:** Yes (for `/sync` endpoint)
+
+```bash
+DOWNOADURL="https://klip.example.com/download"
+```
+
+<Warning>
+  The `DOWNLOAD_URL` must be a publicly accessible URL. If not set, the `/sync` endpoint will return invalid download URLs.
+</Warning>
+
+<CodeGroup>
+  ```bash Terminal
+  export DOWNLOAD_URL="https://klip.example.com/download"
+  node server.js
+  ```
+
+  ```yaml docker-compose.yml
+  services:
+    klip:
+      environment:
+        DOWNLOAD_URL: 'https://klip.example.com/download'
+  ```
+
+  ```bash .env
+  DOWNLOAD_URL="https://klip.example.com/download"
+  ```
+</CodeGroup>
+
+**Usage in code:**
+
+```javascript server.js:15,62-63
+const DOWNLOAD_URL_PREFIX = process.env.DOWNLOAD_URL
+// ...
+return {
+    filename: file,
+    download_url: `${DOWNLOAD_URL_PREFIX}/${file}`,
+}
+```
+
+<Info>
+  You need to configure your reverse proxy or web server to serve files from the `clips` directory at this URL.
+</Info>
+
+**Example nginx configuration:**
+
+```nginx
+location /download {
+    alias /path/to/klip-server/clips;
+    autoindex off;
+}
+```
+
+### PUPPETEER_EXECUTABLE_PATH
+
+Path to the Chromium or Chrome executable for Puppeteer to use.
+
+- **Type:** String (file path)
+- **Default:** `undefined` (Puppeteer uses its bundled Chromium)
+- **Required:** No
+
+```bash
+PUPPETEER_EXECUTABLE_PATH="/usr/bin/chromium-browser"
+```
+
+<Note>
+  Setting this variable allows you to use a system-installed Chromium instead of Puppeteer's bundled version, reducing installation size.
+</Note>
+
+<CodeGroup>
+  ```bash Terminal (Linux)
+  export PUPPETEER_EXECUTABLE_PATH="/usr/bin/chromium-browser"
+  node server.js
+  ```
+
+  ```bash Terminal (macOS)
+  export PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  node server.js
+  ```
+
+  ```yaml docker-compose.yml
+  services:
+    klip:
+      environment:
+        PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser'
+  ```
+
+  ```dockerfile Dockerfile
+  ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+  ```
+</CodeGroup>
+
+**Usage in code:**
+
+```javascript utils/crawler.js:18-28
+async function launchBrowser() {
+    return await puppeteer.launch({
+        headless: true,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
+    });
+}
+```
+
+**Common executable paths:**
+
+| Platform | Path |
+|----------|------|
+| Ubuntu/Debian | `/usr/bin/chromium-browser` |
+| Fedora/RHEL | `/usr/bin/chromium` |
+| Alpine Linux | `/usr/bin/chromium-browser` |
+| macOS (Chrome) | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` |
+| macOS (Chromium) | `/Applications/Chromium.app/Contents/MacOS/Chromium` |
+| Windows | `C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe` |
+
+### PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+
+Prevents Puppeteer from downloading Chromium during `npm install`. Use this when you're providing your own Chromium via `PUPPETEER_EXECUTABLE_PATH`.
+
+- **Type:** Boolean ("true" or "false")
+- **Default:** `false`
+- **Required:** No
+
+```bash
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+```
+
+<Info>
+  This is not a runtime configuration variable. Set it before running `npm install`.
+</Info>
+
+```bash
+export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+npm install
+```
+
+**In Dockerfile:**
+
+```dockerfile Dockerfile:12
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = true
+```
+
+## Complete configuration example
+
+### For Docker Compose
+
+```yaml docker-compose.yml
+services:
+  klip:
+    build: .
+    container_name: klip-server
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      DOWNLOAD_URL: 'https://klip.example.com/download'
+      PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser'
+    volumes:
+      - ./clips:/app/clips
+    ports:
+      - "3000:3000"
+```
+
+### For manual installation
+
+Create a `.env` file:
+
+```bash .env
+PORT=3000
+DOWNLOAD_URL="https://klip.example.com/download"
+PUPPETEER_EXECUTABLE_PATH="/usr/bin/chromium-browser"
+```
+
+Or export variables directly:
+
+```bash
+export PORT=3000
+export DOWNLOAD_URL="https://klip.example.com/download"
+export PUPPETEER_EXECUTABLE_PATH="/usr/bin/chromium-browser"
+node server.js
+```
+
+<Note>
+  If using a `.env` file, you'll need to use a package like `dotenv` to load it, or export the variables manually before starting the server.
+</Note>
+
+## Storage configuration
+
+Clips are stored in the `clips` directory relative to the server root. This directory is created automatically if it doesn't exist.
+
+```javascript server.js:14-18
+const CLIPS_DIR = path.join(__dirname, "clips");
+const DOWNLOAD_URL_PREFIX = process.env.DOWNLOAD_URL
+if (!fs.existsSync(CLIPS_DIR)) {
+    fs.mkdirSync(CLIPS_DIR, { recursive: true })
+}
+```
+
+**For Docker:** Mount a volume to persist clips:
+
+```yaml
+volumes:
+  - ./clips:/app/clips
+```
+
+**For manual setup:** Ensure the server has write permissions to the `clips` directory:
+
+```bash
+mkdir clips
+chmod 755 clips
+```

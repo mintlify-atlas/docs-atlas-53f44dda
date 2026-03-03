@@ -1,0 +1,335 @@
+---
+title: Content processing
+description: Learn how Klip uses Puppeteer and Readability to extract and convert web articles
+---
+
+Klip uses a sophisticated content processing pipeline to convert web articles into clean, readable formats optimized for e-readers. The system combines browser automation, content extraction, and intelligent formatting to handle even complex web pages.
+
+## Processing pipeline
+
+When you clip an article, Klip follows this workflow:
+
+1. **Fetch HTML** - Puppeteer loads the page with stealth mode
+2. **Extract content** - Mozilla Readability isolates the article content
+3. **Format output** - Generate EPUB or PDF with custom styling
+4. **Generate metadata** - Create covers and extract article information
+
+<Info>
+The entire process happens server-side, so your e-reader doesn't need to handle complex JavaScript or render web pages.
+</Info>
+
+## Puppeteer browser automation
+
+Klip uses [Puppeteer](https://pptr.dev/) with the stealth plugin to fetch web content while avoiding bot detection.
+
+### Browser configuration
+
+The browser launches with these optimizations:
+
+```javascript
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+puppeteer.use(StealthPlugin());
+
+await puppeteer.launch({
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+    ]
+});
+```
+
+These flags ensure Puppeteer works reliably in Docker containers and resource-constrained environments.
+
+### Request interception
+
+To speed up page loads, Klip blocks unnecessary resources:
+
+```javascript
+await page.setRequestInterception(true);
+page.on('request', (req) => {
+    const resourceType = req.resourceType();
+    
+    if (['font', 'media', 'stylesheet', 'other'].includes(resourceType)) {
+        req.abort();
+    } else {
+        req.continue();
+    }
+});
+```
+
+<Tip>
+Blocking fonts and stylesheets doesn't affect the final output since Klip applies its own styling during conversion.
+</Tip>
+
+### Mouse movement simulation
+
+Some websites check for human-like behavior. Klip simulates mouse movement before loading the page:
+
+```javascript
+await page.mouse.move(100, 100);
+```
+
+This simple trick helps bypass basic bot detection mechanisms.
+
+## Fetch modes: fast vs best_effort
+
+Klip offers two processing modes to balance speed and content completeness.
+
+### Fast mode (default)
+
+Optimized for quick processing of standard articles:
+
+```javascript
+const waitCondition = 'domcontentloaded';
+await page.goto(url, { waitUntil: waitCondition, timeout: 45000 });
+```
+
+- Waits only for the initial HTML to load
+- Skips waiting for images and async content
+- Completes in 2-5 seconds for most sites
+- Best for: News articles, blogs, documentation
+
+### Best effort mode
+
+Provides more thorough content extraction for complex pages:
+
+```javascript
+const waitCondition = 'networkidle2';
+await page.goto(url, { waitUntil: waitCondition, timeout: 45000 });
+
+if (mode === 'best_effort') {
+    await new Promise(r => setTimeout(r, 1000));
+}
+```
+
+- Waits for network activity to settle
+- Adds extra 1-second delay for lazy-loaded content
+- Processes JavaScript-heavy sites more reliably
+- Best for: Medium, Substack, sites with lazy-loaded images
+
+<Note>
+Best effort mode takes 10-20 seconds longer but captures more content from dynamic sites.
+</Note>
+
+<Accordion title="When to use best_effort mode">
+  Use best effort mode when:
+  
+  - Articles have many lazy-loaded images
+  - Content loads dynamically via JavaScript
+  - Fast mode produces incomplete results
+  - The site uses infinite scroll or deferred rendering
+  
+  Example API request:
+  
+  ```json
+  {
+    "url": "https://example.com/article",
+    "format": "epub",
+    "mode": "best_effort"
+  }
+  ```
+</Accordion>
+
+## Mozilla Readability extraction
+
+After fetching the HTML, Klip uses [Mozilla's Readability library](https://github.com/mozilla/readability) to extract the main article content.
+
+### Configuration
+
+```javascript
+const { Readability } = require('@mozilla/readability');
+const { JSDOM } = require('jsdom');
+
+const doc = new JSDOM(fullHtml, { url });
+const reader = new Readability(doc.window.document, {
+    keepClasses: true,
+    charThreshold: 20
+});
+
+const article = reader.parse();
+```
+
+### Extracted metadata
+
+Readability provides structured article data:
+
+```javascript
+{
+  title: "Article Title",
+  byline: "Author Name",
+  siteName: "Website Name",
+  content: "<div>Clean HTML content...</div>",
+  textContent: "Plain text version",
+  length: 1234,
+  excerpt: "Brief summary..."
+}
+```
+
+<Info>
+The `keepClasses: true` option preserves CSS classes for syntax highlighting in code blocks.
+</Info>
+
+## Special content handling
+
+Klip includes custom processing for challenging content types.
+
+### GitHub Gists
+
+Embedded gists are converted to clean code blocks:
+
+```javascript
+const gists = document.querySelectorAll('.gist');
+gists.forEach(gist => {
+    const codeLines = gist.querySelectorAll('.blob-code');
+    if (codeLines.length > 0) {
+        const pre = document.createElement('pre');
+        const code = document.createElement('code');
+        let cleanHtml = '';
+        codeLines.forEach(line => { 
+            cleanHtml += line.innerHTML + '\n'; 
+        });
+        code.innerHTML = cleanHtml;
+        pre.appendChild(code);
+        gist.replaceWith(pre);
+    }
+});
+```
+
+This extracts the code content and removes GitHub's wrapper elements.
+
+### Lazy-loaded images
+
+Many sites use `<figure>` tags with lazy loading. Klip resolves these intelligently:
+
+```javascript
+document.querySelectorAll('figure').forEach(fig => {
+    let imgUrl = null;
+    
+    // Check noscript tag first
+    const noscript = fig.querySelector('noscript');
+    if (noscript) {
+        const match = noscript.innerHTML.match(/src="([^"]+)"/);
+        if (match) imgUrl = match[1];
+    }
+    
+    // Fall back to img attributes
+    if (!imgUrl) {
+        const img = fig.querySelector('img');
+        if (img) {
+            if (img.currentSrc) imgUrl = img.currentSrc;
+            else if (img.src && !img.src.startsWith('data:')) imgUrl = img.src;
+            else if (img.dataset.src) imgUrl = img.dataset.src;
+            else if (img.srcset) {
+                const parts = img.srcset.split(',');
+                imgUrl = parts[parts.length - 1].trim().split(' ')[0];
+            }
+        }
+    }
+});
+```
+
+<Tip>
+This multi-step approach handles various lazy loading techniques including noscript fallbacks, data-src attributes, and srcset.
+</Tip>
+
+### Image optimization
+
+After extraction, images are normalized:
+
+```javascript
+const newImg = document.createElement('img');
+newImg.src = imgUrl;
+newImg.style.maxWidth = '100%';
+newImg.style.display = 'block';
+newImg.style.margin = '0 auto';
+```
+
+This ensures images render properly on e-readers with varying screen sizes.
+
+## Error handling
+
+### Parse failures
+
+```javascript
+if (!article) {
+    throw new Error('Failed to parse article content.');
+}
+```
+
+<Warning>
+If Readability can't extract content, the request fails. This usually happens when:
+- The URL is paywalled
+- The page is mostly multimedia with little text
+- The site structure confuses the parser
+</Warning>
+
+### Timeout configuration
+
+All page loads have a 45-second timeout:
+
+```javascript
+await page.goto(url, { waitUntil: waitCondition, timeout: 45000 });
+```
+
+This prevents the server from hanging on slow or unresponsive sites.
+
+## Performance considerations
+
+<Accordion title="Browser instance management">
+  The crawler maintains browser instances efficiently:
+  
+  ```javascript
+  let browser = null;
+  
+  async function launchBrowser() {
+      return await puppeteer.launch({
+          headless: true,
+          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+          args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-gpu'
+          ]
+      });
+  }
+  ```
+  
+  Each request gets a new page but can reuse the browser instance to save resources.
+</Accordion>
+
+<Accordion title="Memory management">
+  Pages are explicitly closed after processing:
+  
+  ```javascript
+  try {
+      page = await browser.newPage();
+      // ... processing ...
+      return await page.content();
+  } finally {
+      if (page) await page.close();
+      if (isInternalBrowser && browser) {
+          await browser.close();
+      }
+  }
+  ```
+  
+  This prevents memory leaks when processing multiple articles.
+</Accordion>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Styling" href="/advanced/styling" icon="paintbrush">
+    Learn how Klip styles EPUB and PDF files for optimal e-reader display
+  </Card>
+  <Card title="Troubleshooting" href="/advanced/troubleshooting" icon="wrench">
+    Solve common issues with content processing and conversion
+  </Card>
+</CardGroup>

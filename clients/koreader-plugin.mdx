@@ -1,0 +1,186 @@
+---
+title: KOReader plugin
+description: Install and configure the Klip sync plugin for KOReader
+---
+
+The KOReader plugin adds sync functionality to your e-reader, allowing you to download articles from your Klip server directly within KOReader.
+
+## Installation
+
+<Steps>
+  <Step title="Copy plugin to device">
+    Copy the `klip.koplugin` folder to your KOReader's plugins directory:
+    
+    ```bash
+    /mnt/us/koreader/plugins/klip.koplugin
+    ```
+    
+    <Note>
+    The exact path may vary depending on your device. On Kindle devices, it's typically `/mnt/us/koreader/plugins/`.
+    </Note>
+  </Step>
+  
+  <Step title="Build the Go binary">
+    The plugin requires a compiled Go binary to handle syncing. Build it for your e-reader's architecture:
+    
+    ```bash
+    cd klip.koplugin/klip
+    GOOS=linux GOARCH=arm GOARM=7 go build -o klip main.go
+    ```
+    
+    <Warning>
+    The binary architecture must match your device. Most Kindle Paperwhite and similar e-readers use ARM7. Adjust `GOARCH` and `GOARM` for your specific device.
+    </Warning>
+    
+    The binary must be placed at:
+    ```
+    klip.koplugin/klip/klip
+    ```
+  </Step>
+  
+  <Step title="Restart KOReader">
+    Restart KOReader to load the plugin. The plugin will only load if the binary exists at the correct path.
+  </Step>
+</Steps>
+
+## Configuration
+
+Configure the plugin from within KOReader:
+
+<Steps>
+  <Step title="Open the menu">
+    Tap the top of the screen to open the KOReader menu.
+  </Step>
+  
+  <Step title="Navigate to Klip Sync">
+    Find **Klip Sync** in the menu (sorting hint: 2).
+  </Step>
+  
+  <Step title="Set server URL">
+    Tap **Server URL** and enter your Klip server address:
+    
+    ```
+    http://192.168.1.50:3000
+    ```
+    
+    <Info>
+    If you don't include `http://` or `https://`, the plugin will automatically prepend `http://`.
+    </Info>
+  </Step>
+  
+  <Step title="Set download folder">
+    Tap **Download Folder** and select where articles should be saved on your device. The default is:
+    
+    ```
+    /mnt/us/documents/Klip
+    ```
+  </Step>
+</Steps>
+
+## Usage
+
+Once configured, sync articles from your server:
+
+1. Open the KOReader menu
+2. Navigate to **Klip Sync**
+3. Tap **Sync Now**
+
+The plugin will:
+- Display a "Syncing with Server..." message
+- Download all new articles from your server
+- Save them to your configured download folder
+- Automatically delete successfully downloaded articles from the server
+- Refresh the file manager view
+
+<Tip>
+If sync fails, check KOReader's `crash.log` for detailed error messages.
+</Tip>
+
+## Configuration file
+
+The plugin stores its configuration in JSON format:
+
+```json
+{
+  "server_url": "http://192.168.1.50:3000",
+  "download_path": "/mnt/us/documents/Klip"
+}
+```
+
+This file is located at:
+```
+klip.koplugin/klip/config.json
+```
+
+The sync binary reads this same configuration file to know where to download articles and which server to contact.
+
+## How the plugin works
+
+The plugin consists of two parts:
+
+### Lua plugin (main.lua:1-216)
+
+The Lua component provides the KOReader user interface and menu integration:
+
+- Registers a menu item in KOReader's main menu
+- Provides dialogs for configuring server URL and download folder
+- Executes the Go binary when "Sync Now" is tapped
+- Displays sync status messages to the user
+- Handles configuration persistence
+
+### Go sync binary
+
+The Go binary handles the actual sync process. See the [sync client documentation](/clients/sync-client) for details.
+
+## Troubleshooting
+
+### Plugin doesn't appear in menu
+
+**Cause:** The Go binary is missing or not executable.
+
+**Solution:** Verify the binary exists at `klip.koplugin/klip/klip` and is compiled for the correct architecture. Check lines 15-21 in `main.lua`:
+
+```lua
+local plugin_path = DataStorage:getFullDataDir() .. "/plugins/klip.koplugin"
+local binary_path_relative_to_plugin_path = "klip/klip"
+
+if not util.pathExists(ffi.joinPath(plugin_path, binary_path_relative_to_plugin_path)) then
+    logger.warn("Klip: Binary not found at " .. binary_path_relative_to_plugin_path)
+    return { disabled = true }
+end
+```
+
+### Sync fails with "Sync Failed" message
+
+**Possible causes:**
+- Server URL is incorrect or unreachable
+- Network connectivity issues
+- Download folder doesn't exist or lacks write permissions
+- Server returned an error
+
+**Solution:** Check `crash.log` for the specific error. The binary logs all failures to help diagnose issues.
+
+### Articles download but don't appear
+
+**Solution:** The file manager may need refreshing. The plugin automatically calls `self.ui.file_manager:reinit()` after successful sync (main.lua:121), but you may need to navigate away and back to the folder.
+
+## Building for different architectures
+
+Common e-reader architectures:
+
+| Device | GOOS | GOARCH | GOARM |
+|--------|------|--------|-------|
+| Kindle Paperwhite | linux | arm | 7 |
+| Kobo devices | linux | arm | 7 |
+| Older Kindles | linux | arm | 5 |
+| PocketBook | linux | arm | 7 |
+
+<Warning>
+Using the wrong architecture will cause the binary to fail silently or produce "Exec format error" messages in crash.log.
+</Warning>
+
+To verify your device architecture, you can SSH into your e-reader (if available) and run:
+
+```bash
+uname -m
+```

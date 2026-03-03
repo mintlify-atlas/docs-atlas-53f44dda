@@ -1,0 +1,236 @@
+---
+title: Manual setup
+description: Install and run Klip server manually using Node.js and npm
+---
+
+You can run Klip server directly on your system without Docker. This requires Node.js and installing Chromium separately.
+
+## Prerequisites
+
+- Node.js LTS (18.x or higher recommended)
+- npm (comes with Node.js)
+- Chromium or Google Chrome installed on your system
+
+## Installation steps
+
+<Steps>
+  <Step title="Clone or download the source code">
+    Get the Klip server source code:
+
+    ```bash
+    git clone <repository-url> klip-server
+    cd klip-server
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Install the required npm packages:
+
+    ```bash
+    npm install
+    ```
+
+    This will install all dependencies from `package.json`:
+
+    ```json package.json
+    {
+      "name": "klip-server",
+      "version": "1.0.0",
+      "main": "index.js",
+      "dependencies": {
+        "@mozilla/readability": "^0.6.0",
+        "cors": "^2.8.5",
+        "epub-gen": "^0.1.0",
+        "express": "^5.2.1",
+        "jsdom": "^27.0.1",
+        "puppeteer": "^24.35.0",
+        "puppeteer-extra": "^3.3.6",
+        "puppeteer-extra-plugin-stealth": "^2.11.2",
+        "uuid": "^13.0.0"
+      }
+    }
+    ```
+
+    <Note>
+      By default, Puppeteer will download its own copy of Chromium. To skip this and use your system's Chromium, see the configuration step below.
+    </Note>
+  </Step>
+
+  <Step title="Create the clips directory">
+    Create a directory to store generated files:
+
+    ```bash
+    mkdir clips
+    ```
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file or set environment variables directly. See the [configuration guide](/server/configuration) for all available options.
+
+    At minimum, set the `DOWNLOAD_URL`:
+
+    ```bash
+    export DOWNLOAD_URL="https://klip.example.com/download"
+    ```
+
+    <Warning>
+      The `DOWNLOAD_URL` must be publicly accessible for clients to download generated clips.
+    </Warning>
+  </Step>
+
+  <Step title="Start the server">
+    Run the server using Node.js:
+
+    ```bash
+    node server.js
+    ```
+
+    You should see:
+    ```
+    Klip Server active on http://localhost:3000
+    ```
+  </Step>
+</Steps>
+
+## Using a system Chromium installation
+
+If you want to use your system's Chromium or Chrome instead of Puppeteer's bundled version:
+
+<Steps>
+  <Step title="Install Chromium">
+    Install Chromium using your system's package manager:
+
+    <CodeGroup>
+      ```bash Ubuntu/Debian
+      sudo apt install chromium-browser
+      ```
+
+      ```bash Fedora/RHEL
+      sudo dnf install chromium
+      ```
+
+      ```bash macOS
+      brew install chromium
+      ```
+
+      ```bash Alpine Linux
+      apk add chromium
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Set the executable path">
+    Configure Puppeteer to use the system Chromium:
+
+    ```bash
+    export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    ```
+
+    Common paths:
+    - Linux: `/usr/bin/chromium-browser` or `/usr/bin/chromium`
+    - macOS: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
+    - Windows: `C:\Program Files\Google\Chrome\Application\chrome.exe`
+  </Step>
+
+  <Step title="Skip Chromium download during installation">
+    To prevent Puppeteer from downloading Chromium:
+
+    ```bash
+    export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    npm install
+    ```
+  </Step>
+</Steps>
+
+## Running as a service
+
+For production use, you should run Klip server as a system service.
+
+### Using systemd (Linux)
+
+Create a service file at `/etc/systemd/system/klip-server.service`:
+
+```ini /etc/systemd/system/klip-server.service
+[Unit]
+Description=Klip Server
+After=network.target
+
+[Service]
+Type=simple
+User=klip
+WorkingDirectory=/opt/klip-server
+Environment="PORT=3000"
+Environment="DOWNLOAD_URL=https://klip.example.com/download"
+Environment="PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser"
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl enable klip-server
+sudo systemctl start klip-server
+sudo systemctl status klip-server
+```
+
+### Using PM2 (cross-platform)
+
+Install PM2 globally:
+
+```bash
+npm install -g pm2
+```
+
+Start the server with PM2:
+
+```bash
+pm2 start server.js --name klip-server
+pm2 save
+pm2 startup
+```
+
+## Development mode
+
+For development, you can use nodemon for auto-reloading:
+
+```bash
+npm install -g nodemon
+nodemon server.js
+```
+
+<Info>
+  The server runs on port 3000 by default. Change this with the `PORT` environment variable.
+</Info>
+
+## Troubleshooting
+
+### Puppeteer fails to launch browser
+
+If you see errors like "Failed to launch the browser process":
+
+1. Ensure Chromium is installed
+2. Set `PUPPETEER_EXECUTABLE_PATH` correctly
+3. On Linux, install required dependencies:
+
+```bash
+# Debian/Ubuntu
+sudo apt install -y ca-certificates fonts-liberation libasound2 libatk-bridge2.0-0 \
+  libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 \
+  libgbm1 libgcc1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
+  libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 \
+  libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 \
+  libxss1 libxtst6 lsb-release wget xdg-utils
+```
+
+### Module not found errors
+
+Ensure all dependencies are installed:
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
